@@ -1094,6 +1094,66 @@ def build_main_map() -> folium.Map:
 
 with tabs[1]:
     st.subheader("🗺️ Mapa Interativo")
+
+    # ----- PONTOS DE VIADUTO: controle de PARTICIPACAO NA SIMULACAO -----
+    # Importante: esta secao precede o mapa para deixar claro que
+    # estes checkboxes sao a fonte da verdade da simulacao.
+    viad_gdf_top = st.session_state.layers.get("pontos_viaduto")
+    if viad_gdf_top is not None and not viad_gdf_top.empty:
+        st.markdown("### 🟢 Pontos de estudo de viaduto - **PARTICIPACAO NA SIMULACAO**")
+        st.warning(
+            "⚠️ **IMPORTANTE:** os checkboxes ABAIXO determinam quais viadutos entram nos "
+            "cenarios da aba 🛠️ Cenarios.  \n"
+            "👁️ O controle de camadas DENTRO do mapa (lateral direita) e **apenas visual** &mdash; "
+            "ele NAO afeta a simulacao."
+        )
+
+        if "active_viaducts" not in st.session_state:
+            st.session_state.active_viaducts = set(range(min(4, len(viad_gdf_top))))
+        current_active_top = set(st.session_state.active_viaducts)
+
+        n_pts_top = len(viad_gdf_top)
+        cols_chk_top = st.columns(min(n_pts_top, 4))
+        new_active_top = set()
+        for i, (_, row) in enumerate(viad_gdf_top.iterrows()):
+            nome = row.get("nome", f"Ponto {i+1}")
+            descricao = row.get("descricao", "")
+            with cols_chk_top[i % len(cols_chk_top)]:
+                was_active = i in current_active_top
+                would_exceed = (len(new_active_top) >= 4) and not was_active
+                checked = st.checkbox(
+                    f"✅ **{nome}**" if was_active else f"⬜ {nome}",
+                    value=was_active,
+                    key=f"chk_viad_top_{i}",
+                    help=f"{descricao}\n\nMarcar = incluir na simulacao",
+                    disabled=would_exceed,
+                )
+                if checked and not would_exceed:
+                    new_active_top.add(i)
+
+        if new_active_top != current_active_top:
+            st.session_state.active_viaducts = new_active_top
+            validation.invalidate("map_step_validated")
+            st.rerun()
+
+        active_count_top = len(st.session_state.active_viaducts)
+        if active_count_top == 0:
+            st.error("❌ **Nenhum viaduto incluido na simulacao.** Cenarios de viaduto NAO "
+                     "serao gerados. Apenas a matriz O-D base estara disponivel.")
+        elif active_count_top == len(viad_gdf_top):
+            st.success(f"✅ Todos os {active_count_top} viadutos serao considerados na simulacao.")
+        else:
+            inactive_names = [
+                viad_gdf_top.iloc[i].get("nome", f"V{i+1}")
+                for i in range(len(viad_gdf_top))
+                if i not in st.session_state.active_viaducts
+            ]
+            st.info(
+                f"✅ **{active_count_top} de {len(viad_gdf_top)} viaduto(s)** serao considerados. "
+                f"Excluidos: _{', '.join(inactive_names)}_."
+            )
+        st.divider()
+
     col1, col2 = st.columns([3, 1])
     with col1:
         fmap = build_main_map()
@@ -1125,62 +1185,6 @@ with tabs[1]:
             click = map_state["last_clicked"]
             st.info(f"Ultimo clique: lat **{click['lat']:.5f}**, lon **{click['lng']:.5f}**\n\n"
                     f"Copie para adicionar um ponto na aba *Pontos / Edicao*.")
-
-    # ----- Toggles individuais dos pontos de estudo de viaduto -----
-    st.divider()
-    st.markdown("### 🟢 Pontos de estudo de viaduto - ativacao individual")
-    st.caption(
-        "🎯 **Estes checkboxes controlam quais pontos PARTICIPAM da simulacao de cenarios** "
-        "na aba 🛠️ Cenarios. **Maximo 4 ativos simultaneamente.**  \n"
-        "👁️ No mapa acima, cada ponto tambem aparece como camada **individual** no controle "
-        "de camadas (canto superior direito do mapa) - voce pode mostrar/ocultar visualmente "
-        "cada um separadamente."
-    )
-    viad_gdf = st.session_state.layers.get("pontos_viaduto")
-    if viad_gdf is None or viad_gdf.empty:
-        st.info("Nenhum ponto de estudo de viaduto disponivel. Cadastre-os na aba 📍 Pontos / Edicao.")
-    else:
-        if "active_viaducts" not in st.session_state:
-            st.session_state.active_viaducts = set(range(min(4, len(viad_gdf))))
-        current_active = set(st.session_state.active_viaducts)
-
-        # Distribui checkboxes em colunas (max 4 visiveis lado a lado)
-        n_pts = len(viad_gdf)
-        cols_chk = st.columns(min(n_pts, 4))
-        new_active = set()
-        for i, (_, row) in enumerate(viad_gdf.iterrows()):
-            nome = row.get("nome", f"Ponto {i+1}")
-            descricao = row.get("descricao", "")
-            with cols_chk[i % len(cols_chk)]:
-                was_active = i in current_active
-                # bloqueia novos checkboxes se ja temos 4 e este nao estava ativo
-                would_exceed = (len(new_active) >= 4) and not was_active
-                checked = st.checkbox(
-                    f"**{nome}**",
-                    value=was_active,
-                    key=f"chk_viad_{i}",
-                    help=descricao,
-                    disabled=would_exceed,
-                )
-                if checked and not would_exceed:
-                    new_active.add(i)
-
-        # Detecta mudanca e invalida o passo se o usuario alterou
-        if new_active != current_active:
-            st.session_state.active_viaducts = new_active
-            validation.invalidate("map_step_validated")
-            st.rerun()
-
-        active_count = len(st.session_state.active_viaducts)
-        if active_count == 0:
-            st.warning(
-                "⚠️ **Nenhum ponto de estudo de viaduto esta ativo.** A matriz origem-destino "
-                "sera apresentada sem simulacao de intervencao."
-            )
-        elif active_count == len(viad_gdf):
-            st.success(f"✅ Todos os {active_count} pontos ativos - simulacao considera todos simultaneamente.")
-        else:
-            st.info(f"✅ {active_count} de {len(viad_gdf)} pontos ativos. Apenas estes entram nos cenarios.")
 
     # ----- Botao de validacao da etapa Mapa -----
     st.divider()
