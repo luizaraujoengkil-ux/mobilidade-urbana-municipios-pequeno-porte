@@ -289,11 +289,19 @@ def shortest_path_matrix(G: nx.Graph) -> pd.DataFrame:
     return df
 
 
-def zone_distance_matrix(G: nx.Graph) -> pd.DataFrame:
+def zone_distance_matrix(G: nx.Graph, fallback_haversine: bool = True,
+                          urban_detour_factor: float = 1.4) -> pd.DataFrame:
     """Matriz de menor caminho entre nos de zona, computada eficientemente.
 
     Faz Dijkstra apenas a partir dos nos de zona (em vez de todos os nos do
     grafo), o que e essencial quando o grafo contem milhares de nos OSM.
+
+    Args:
+        fallback_haversine: se True, substitui distancias infinitas (zonas
+            desconectadas no grafo) por haversine entre centroides
+            multiplicado por urban_detour_factor.
+        urban_detour_factor: fator de desvio urbano aplicado a haversine
+            (1.4 e tipico para malhas viarias urbanas - linha reta x rota real).
     """
     zona_nodes = [n for n, d in G.nodes(data=True) if d.get("tipo") == "zona"]
     if not zona_nodes:
@@ -305,7 +313,16 @@ def zone_distance_matrix(G: nx.Graph) -> pd.DataFrame:
         except Exception:
             lengths = {}
         for m in zona_nodes:
-            df.loc[n, m] = lengths.get(m, float("inf"))
+            d = lengths.get(m, float("inf"))
+            # Fallback: se rede nao conecta o par, estima por haversine + detour
+            if fallback_haversine and (d == float("inf") or pd.isna(d)):
+                if n == m:
+                    d = 0.0
+                else:
+                    a = G.nodes[n]
+                    b = G.nodes[m]
+                    d = haversine_km(a["lat"], a["lon"], b["lat"], b["lon"]) * urban_detour_factor
+            df.loc[n, m] = d
     return df
 
 

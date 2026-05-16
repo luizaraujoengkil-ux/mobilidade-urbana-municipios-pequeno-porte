@@ -1133,6 +1133,7 @@ with tabs[1]:
 
         if new_active_top != current_active_top:
             st.session_state.active_viaducts = new_active_top
+            st.session_state.base_graph = None  # forca rebuild do grafo
             validation.invalidate("map_step_validated")
             st.rerun()
 
@@ -1803,11 +1804,48 @@ with tabs[6]:
             best = scen.best_scenario(df_compare)
             if best is not None:
                 st.markdown("##### 🏆 Interpretacao automatica")
-                st.success(
-                    f"**Cenario mais vantajoso:** {best['cenario']}  \n"
-                    f"**Tipo:** {best['tipo']}  \n"
-                    f"**{best['observacao']}**"
-                )
+                # so vale a pena destacar se o melhor cenario nao for o baseline
+                if best["cenario"] != "Cenario Atual" and float(best.get("reducao_percurso_pct", 0)) > 0.5:
+                    red_pct = float(best["reducao_percurso_pct"])
+                    dist_med = float(best["distancia_media_km"])
+                    tempo_med = float(best["tempo_medio_min"])
+                    # baseline
+                    base_row = df_compare[df_compare["cenario"] == "Cenario Atual"].iloc[0]
+                    base_dist = float(base_row["distancia_media_km"])
+                    base_tempo = float(base_row["tempo_medio_min"])
+                    dist_savings = base_dist - dist_med
+                    tempo_savings = base_tempo - tempo_med
+
+                    nome_curto = best["cenario"].replace("[AUTO] Viaduto ", "").replace("[AUTO]", "").strip()
+
+                    st.success(
+                        f"### 🏆 **{nome_curto}** foi o ponto de estudo que mais reduziu o tempo de "
+                        f"travessia entre as zonas da cidade.  \n\n"
+                        f"📉 **Reducao media de percurso entre zonas:** **{red_pct:.1f}%**  \n"
+                        f"📏 **Distancia media baseline:** {base_dist:.3f} km → **com intervencao:** {dist_med:.3f} km "
+                        f"(economia de **{dist_savings:.3f} km** por viagem)  \n"
+                        f"⏱️ **Tempo medio baseline:** {base_tempo:.2f} min → **com intervencao:** {tempo_med:.2f} min "
+                        f"(economia de **{tempo_savings:.2f} min** por viagem)  \n\n"
+                        f"💡 **Interpretacao:** A implantacao do **{nome_curto}** "
+                        f"({best['tipo'].lower()}) reduz significativamente a distancia que veiculos precisam "
+                        f"percorrer hoje contornando a ferrovia/rodovia para ligar as zonas urbanas. "
+                        f"Indicando ganho de **conectividade urbana** e diminuicao do **efeito barreira** "
+                        f"sobre a mobilidade do municipio."
+                    )
+                elif best["cenario"] == "Cenario Atual":
+                    st.warning(
+                        "📊 **Nenhuma intervencao gerou reducao significativa** em relacao ao baseline. "
+                        "Possiveis causas:  \n"
+                        "• A malha viaria OSM cobre uma area pequena (aumente o raio na sidebar);  \n"
+                        "• Os pontos de viaduto ja estao em areas com boa conectividade;  \n"
+                        "• A configuracao das intervencoes (fator de impedancia) pode ser ajustada na aba 🛠️ Cenarios."
+                    )
+                else:
+                    st.info(
+                        f"**Cenario mais vantajoso:** {best['cenario']}  \n"
+                        f"**Tipo:** {best['tipo']}  \n"
+                        f"{best['observacao']}"
+                    )
 
             # ============================================================
             # MATRIZES O-D POR CENARIO (par a par)
