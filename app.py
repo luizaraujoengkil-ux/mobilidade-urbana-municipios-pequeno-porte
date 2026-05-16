@@ -1052,11 +1052,11 @@ def build_main_map() -> folium.Map:
     if show.get("pontos_viaduto"):
         viad_gdf_full = layers.get("pontos_viaduto")
         if viad_gdf_full is not None and not viad_gdf_full.empty:
+            # Cada ponto vira uma camada individual no controle do mapa.
+            # Os ativos comecam visiveis; os inativos comecam ocultos.
+            # O usuario tambem pode toggle visualmente direto no mapa.
             active = st.session_state.get("active_viaducts", set(range(len(viad_gdf_full))))
-            if active:
-                idx_list = [i for i in active if 0 <= i < len(viad_gdf_full)]
-                if idx_list:
-                    map_utils.add_pontos_viaduto(m, viad_gdf_full.iloc[idx_list])
+            map_utils.add_pontos_viaduto(m, viad_gdf_full, active_indices=active)
         else:
             map_utils.add_pontos_viaduto(m, viad_gdf_full)
     if show.get("pontos_interesse"):
@@ -1130,9 +1130,11 @@ with tabs[1]:
     st.divider()
     st.markdown("### 🟢 Pontos de estudo de viaduto - ativacao individual")
     st.caption(
-        "Marque/desmarque cada ponto para incluir ou excluir da simulacao de cenarios. "
-        "**Maximo 4 ativos simultaneamente.** Se nenhum estiver ativo, os cenarios de "
-        "viaduto nao serao gerados (apenas a matriz O-D base sera apresentada)."
+        "🎯 **Estes checkboxes controlam quais pontos PARTICIPAM da simulacao de cenarios** "
+        "na aba 🛠️ Cenarios. **Maximo 4 ativos simultaneamente.**  \n"
+        "👁️ No mapa acima, cada ponto tambem aparece como camada **individual** no controle "
+        "de camadas (canto superior direito do mapa) - voce pode mostrar/ocultar visualmente "
+        "cada um separadamente."
     )
     viad_gdf = st.session_state.layers.get("pontos_viaduto")
     if viad_gdf is None or viad_gdf.empty:

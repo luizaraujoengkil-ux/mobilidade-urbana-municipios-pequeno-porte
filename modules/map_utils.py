@@ -129,11 +129,29 @@ def add_rodovias(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True) -> Non
     fg.add_to(m)
 
 
-def add_pontos_viaduto(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True) -> None:
+def add_pontos_viaduto(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True,
+                        active_indices=None) -> None:
+    """Renderiza os pontos de estudo de viaduto como camadas individuais.
+
+    Cada ponto vira um FeatureGroup separado no controle de camadas do mapa,
+    o que permite ao usuario marcar/desmarcar cada um individualmente.
+
+    Args:
+        gdf: GeoDataFrame com os pontos
+        show: visibilidade padrao quando active_indices nao e fornecido
+        active_indices: conjunto de indices (0-based) que devem comecar visiveis.
+            Se fornecido, sobrescreve 'show' por ponto.
+    """
     if gdf is None or gdf.empty:
         return
-    fg = folium.FeatureGroup(name="Pontos de Estudo de Viaduto", show=show)
-    for _, row in gdf.iterrows():
+    for idx, (_, row) in enumerate(gdf.iterrows()):
+        nome = row.get("nome", f"Ponto {idx+1}")
+        descricao = row.get("descricao", "")
+        if active_indices is not None:
+            is_visible = idx in active_indices
+        else:
+            is_visible = show
+        fg = folium.FeatureGroup(name=f"🟢 {nome}", show=is_visible)
         folium.CircleMarker(
             location=[row.geometry.y, row.geometry.x],
             radius=8,
@@ -142,9 +160,9 @@ def add_pontos_viaduto(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True) 
             fill=True,
             fill_color=COLORS["viaduto_estudo"],
             fill_opacity=0.9,
-            tooltip=f"<b>{row.get('nome','')}</b><br>{row.get('descricao','')}",
+            tooltip=f"<b>{nome}</b><br>{descricao}",
         ).add_to(fg)
-    fg.add_to(m)
+        fg.add_to(m)
 
 
 def add_pontos_interesse(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True,
