@@ -93,30 +93,73 @@ def show_welcome_screen() -> None:
     Chamada antes da inicializacao do app quando 'study_mode' ainda nao
     esta definido em session_state.
     """
-    st.markdown(
-        """
-        <div style="text-align:center;padding:60px 20px 30px 20px;">
-            <div style="font-size:4rem;">🗺️</div>
-            <h1 style="color:#4A148C;margin-bottom:8px;">
-                Simulador de Mobilidade Urbana<br>para Municipios de Pequeno Porte
-            </h1>
-            <p style="font-size:1.1rem;color:#555;max-width:760px;margin:8px auto 30px auto;">
-                Ferramenta experimental para analise de areas de estudo, matriz origem-destino
-                simplificada e simulacao de intervencoes viarias (viadutos, pontes, novas ligacoes).
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    from pathlib import Path
+    logo_path = Path(__file__).resolve().parent / "assets" / "logo_ime.png"
+    has_logo = logo_path.exists()
+
+    # ----- Cabecalho: logo IME + tagline + titulo -----
+    st.markdown("<div style='height:30px;'></div>", unsafe_allow_html=True)
+    col_logo, col_text = st.columns([1, 5])
+    with col_logo:
+        if has_logo:
+            st.image(str(logo_path), width=140)
+        else:
+            st.markdown(
+                "<div style='font-size:96px;text-align:center;line-height:1;"
+                "color:#4A148C;'>🛡️</div>"
+                "<div style='text-align:center;font-size:0.7rem;color:#9C27B0;"
+                "letter-spacing:2px;font-weight:700;margin-top:4px;'>IME</div>",
+                unsafe_allow_html=True,
+            )
+    with col_text:
+        st.markdown(
+            """
+            <div style="padding-top: 14px;">
+              <div style="font-size:0.85rem;color:#9C27B0;letter-spacing:3px;
+                          font-weight:700;margin-bottom:4px;">
+                  PLANEJAMENTO DE TRANSPORTES &middot; IME
+              </div>
+              <h1 style="color:#4A148C;margin: 4px 0 0 0;font-size:2.1rem;line-height:1.2;">
+                  Simulador de Mobilidade Urbana<br>
+                  para Municipios de Pequeno Porte
+              </h1>
+              <p style="font-size:1.0rem;color:#555;margin-top:8px;max-width:780px;">
+                  Ferramenta experimental para analise de areas de estudo,
+                  matriz origem-destino simplificada e simulacao de intervencoes
+                  viarias (viadutos, pontes, novas ligacoes).
+              </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='height:30px;'></div>", unsafe_allow_html=True)
+
+    # Badge HTML reutilizavel (canto superior direito de cada card)
+    badge_html = (
+        "<div style='position:absolute;top:14px;right:14px;background:#FFFFFF;"
+        "border:1px solid #C8B8E0;padding:5px 10px;border-radius:6px;"
+        "font-size:0.65rem;letter-spacing:1.6px;color:#4A148C;font-weight:700;'>"
+        "PLANEJAMENTO DE<br>TRANSPORTES · IME"
+        "</div>"
     )
+
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(
-            """
+            f"""
             <div style="background:linear-gradient(135deg,#F3E5F5 0%,#FFFFFF 100%);
-                        border-left:5px solid #B83DBA;padding:20px;border-radius:10px;
-                        box-shadow:0 1px 4px rgba(0,0,0,0.06);min-height:200px;">
-                <h3 style="color:#4A148C;margin-top:0;">🎓 Abrir demonstracao</h3>
+                        border-left:5px solid #B83DBA;padding:22px;border-radius:10px;
+                        box-shadow:0 1px 4px rgba(0,0,0,0.06);min-height:230px;
+                        position:relative;">
+                {badge_html}
+                <h3 style="color:#4A148C;margin-top:0;padding-right:140px;">
+                    🎓 Abrir demonstracao
+                </h3>
                 <p><b>Matias Barbosa / MG</b></p>
+                <p style="font-size:0.85rem;color:#777;font-style:italic;margin-top:-6px;">
+                    Caso da disciplina de Planejamento de Transportes
+                </p>
                 <p style="font-size:0.9rem;color:#555;">
                     Estudo de caso pre-carregado com zonas Z1-Z4, linha ferrea, BR-040,
                     MG-353, Uniao Industria e pontos de viaduto. Tudo editavel.
@@ -131,12 +174,19 @@ def show_welcome_screen() -> None:
             st.rerun()
     with c2:
         st.markdown(
-            """
+            f"""
             <div style="background:linear-gradient(135deg,#E8F5E9 0%,#FFFFFF 100%);
-                        border-left:5px solid #43A047;padding:20px;border-radius:10px;
-                        box-shadow:0 1px 4px rgba(0,0,0,0.06);min-height:200px;">
-                <h3 style="color:#1B5E20;margin-top:0;">🌍 Criar novo estudo</h3>
+                        border-left:5px solid #43A047;padding:22px;border-radius:10px;
+                        box-shadow:0 1px 4px rgba(0,0,0,0.06);min-height:230px;
+                        position:relative;">
+                {badge_html}
+                <h3 style="color:#1B5E20;margin-top:0;padding-right:140px;">
+                    🌍 Criar novo estudo
+                </h3>
                 <p><b>Outro municipio</b></p>
+                <p style="font-size:0.85rem;color:#777;font-style:italic;margin-top:-6px;">
+                    Aplicavel a qualquer cidade brasileira
+                </p>
                 <p style="font-size:0.9rem;color:#555;">
                     Assistente passo a passo: municipio, area de estudo, vias, eixos
                     estruturantes, zonas analiticas e pontos de interesse.
@@ -150,12 +200,16 @@ def show_welcome_screen() -> None:
             st.session_state.study_mode = "new"
             st.rerun()
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
     st.info(
         "ℹ️ A escolha aqui apenas determina os dados iniciais. Em ambos os modos voce "
         "pode editar, importar arquivos KMZ/KML/GeoJSON, cadastrar pontos, ajustar "
         "zonas, simular intervencoes e gerar relatorios."
     )
+    if not has_logo:
+        st.caption(
+            "💡 Para exibir o logotipo do IME, salve o arquivo em `assets/logo_ime.png` no projeto."
+        )
 
 
 # Gate: se ainda nao escolheu, mostra a tela inicial e para
