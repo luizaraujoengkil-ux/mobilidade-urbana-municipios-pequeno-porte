@@ -835,6 +835,16 @@ def _step_pois() -> None:
         "(escolas, hospitais, prefeitura, comercios, industrias, estacoes, paradas, passagens de nivel...)."
     )
 
+    st.success(
+        "🎯 **Lembrete do fluxo de analise:**  \n"
+        "• O **cenario baseline** (atual, sem intervencao) ja existe automaticamente.  \n"
+        "• Pontos cadastrados aqui com categoria **Viaduto proposto, Ponte proposta, "
+        "Passagem inferior/superior de nivel, Travessia critica ou Nova ligacao viaria** "
+        "se tornam nos selecionaveis na aba 🛠️ **Cenarios**.  \n"
+        "• Apos cadastrar, va em 🛠️ Cenarios para simular, depois em 📊 Comparacao e "
+        "📑 Relatorio para ver a melhora ou piora **em relacao ao baseline**."
+    )
+
     st.markdown("##### 🔍 Busca automatica no OSM")
     st.info(
         "ℹ️ **Os pontos sugeridos sao obtidos de bases abertas (OpenStreetMap) e podem estar "
@@ -918,6 +928,43 @@ with tabs[0]:
     # Step state
     if "wizard_step_idx" not in st.session_state:
         st.session_state.wizard_step_idx = 0
+
+    # ----- ATALHO: pular configuracao e ir direto para intervencoes -----
+    if st.session_state.study_mode == "demo":
+        st.markdown(
+            """
+            <div style="background:linear-gradient(135deg,#FFF8E1 0%,#FFFFFF 100%);
+                        border-left:5px solid #F9A825;padding:16px 18px;border-radius:10px;
+                        margin: 8px 0 12px 0;color:#5D4037;">
+                <b>🚀 Atalho rapido para usar o estudo demonstrativo</b><br>
+                <span style="font-size:0.9rem;">
+                Se voce nao quer reconfigurar nada da demonstracao, pule direto para a
+                <b>etapa 6</b> onde voce cadastra pontos de viaduto, ponte ou passagem de nivel.
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        col_sh1, col_sh2 = st.columns([1, 1])
+        with col_sh1:
+            if st.button("✅ Manter configuracao e ir para INTERVENCOES (etapa 6)",
+                         use_container_width=True, type="primary", key="wiz_jump_to_pois"):
+                st.session_state.wizard_step_idx = 5
+                st.rerun()
+        with col_sh2:
+            st.markdown(
+                """
+                <div style="font-size:0.85rem;color:#666;padding:8px 4px;">
+                ⚙️ <b>Fluxo recomendado:</b><br>
+                1️⃣ <b>Baseline</b> ja existe ('Cenario Atual' na aba 🛠️ Cenarios) sem intervencoes.<br>
+                2️⃣ Cadastre viadutos/pontes na etapa 6.<br>
+                3️⃣ Crie cenarios usando esses pontos.<br>
+                4️⃣ Veja melhora ou piora em 📊 Comparacao e 📑 Relatorio.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        st.divider()
 
     # Barra de etapas
     cur_idx = st.session_state.wizard_step_idx
