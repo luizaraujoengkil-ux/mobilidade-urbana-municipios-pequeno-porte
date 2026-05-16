@@ -1,0 +1,69 @@
+{
+  "type": "FeatureCollection",
+  "name": "rodovias",
+  "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "BR-040",
+        "tipo": "rodovia_federal",
+        "categoria": "br040",
+        "observacoes": "Rodovia federal que corta o municipio no sentido NE-SO"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-43.3320, -21.8570],
+          [-43.3280, -21.8620],
+          [-43.3240, -21.8670],
+          [-43.3200, -21.8720],
+          [-43.3160, -21.8770],
+          [-43.3120, -21.8820],
+          [-43.3080, -21.8870],
+          [-43.3040, -21.8920]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "Uniao Industria (BR-040 Antiga)",
+        "tipo": "rodovia_antiga",
+        "categoria": "uniao_industria",
+        "observacoes": "Antigo tracado da Uniao Industria - eixo historico que atravessa a area urbana"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-43.3290, -21.8600],
+          [-43.3230, -21.8660],
+          [-43.3180, -21.8700],
+          [-43.3130, -21.8730],
+          [-43.3080, -21.8755],
+          [-43.3020, -21.8780],
+          [-43.2960, -21.8810],
+          [-43.2910, -21.8855]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "MG-353",
+        "tipo": "rodovia_estadual",
+        "categoria": "mg353",
+        "observacoes": "Rodovia estadual de ligacao regional"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-43.3140, -21.8730],
+          [-43.3090, -21.8770],
+          [-43.3030, -21.8830],
+          [-43.2970, -21.8880]
+        ]
+      }
+    }
+  ]
+}

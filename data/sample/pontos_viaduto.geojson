@@ -1,0 +1,43 @@
+{
+  "type": "FeatureCollection",
+  "name": "pontos_estudo_viaduto",
+  "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "V1 - Travessia Norte",
+        "categoria": "Estudo de viaduto",
+        "descricao": "Possivel ponto de viaduto sobre a ferrovia - acesso a Z4 industrial"
+      },
+      "geometry": {"type": "Point", "coordinates": [-43.3220, -21.8680]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "V2 - Travessia Central",
+        "categoria": "Estudo de viaduto",
+        "descricao": "Ponto critico de cruzamento entre Uniao Industria e linha ferrea"
+      },
+      "geometry": {"type": "Point", "coordinates": [-43.3170, -21.8720]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "V3 - Travessia Centro-Sul",
+        "categoria": "Estudo de viaduto",
+        "descricao": "Possivel viaduto que conecta Z1 (centro) com bairros a sul da ferrovia"
+      },
+      "geometry": {"type": "Point", "coordinates": [-43.3110, -21.8750]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "V4 - Travessia Sudeste",
+        "categoria": "Estudo de viaduto",
+        "descricao": "Conexao entre Z2 e o eixo da Uniao Industria"
+      },
+      "geometry": {"type": "Point", "coordinates": [-43.3040, -21.8790]}
+    }
+  ]
+}

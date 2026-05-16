@@ -1,0 +1,100 @@
+{
+  "type": "FeatureCollection",
+  "name": "zonas_matias_barbosa",
+  "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "zona": "Z1",
+        "nome": "Centro / Nucleo Urbano",
+        "tipo": "Centralidade",
+        "geracao": 100,
+        "atracao": 120,
+        "populacao": 4500,
+        "observacoes": "Area central com servicos, comercio e administracao publica"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-43.3170, -21.8700],
+          [-43.3080, -21.8700],
+          [-43.3060, -21.8740],
+          [-43.3090, -21.8780],
+          [-43.3160, -21.8770],
+          [-43.3180, -21.8730],
+          [-43.3170, -21.8700]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zona": "Z2",
+        "nome": "Area Urbana Sudeste",
+        "tipo": "Residencial urbana",
+        "geracao": 85,
+        "atracao": 55,
+        "populacao": 3200,
+        "observacoes": "Bairros residenciais consolidados a sudeste do centro"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-43.3080, -21.8780],
+          [-43.2970, -21.8790],
+          [-43.2940, -21.8870],
+          [-43.3020, -21.8890],
+          [-43.3090, -21.8830],
+          [-43.3080, -21.8780]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zona": "Z3",
+        "nome": "Areas Residenciais Dispersas",
+        "tipo": "Residencial dispersa",
+        "geracao": 60,
+        "atracao": 35,
+        "populacao": 2100,
+        "observacoes": "Loteamentos e areas residenciais perifericas e dispersas"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-43.3270, -21.8780],
+          [-43.3180, -21.8780],
+          [-43.3170, -21.8870],
+          [-43.3240, -21.8910],
+          [-43.3290, -21.8850],
+          [-43.3270, -21.8780]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zona": "Z4",
+        "nome": "Area Industrial / Logistica",
+        "tipo": "Industrial",
+        "geracao": 45,
+        "atracao": 95,
+        "populacao": 600,
+        "observacoes": "Galpoes, industrias e logistica proxima ao eixo BR-040"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-43.3280, -21.8600],
+          [-43.3170, -21.8600],
+          [-43.3150, -21.8680],
+          [-43.3220, -21.8700],
+          [-43.3290, -21.8660],
+          [-43.3280, -21.8600]
+        ]]
+      }
+    }
+  ]
+}

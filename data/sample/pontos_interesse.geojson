@@ -1,0 +1,37 @@
+{
+  "type": "FeatureCollection",
+  "name": "pontos_interesse",
+  "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"nome": "Prefeitura", "categoria": "Outro", "descricao": "Administracao publica - centro"},
+      "geometry": {"type": "Point", "coordinates": [-43.3120, -21.8735]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"nome": "Escola Municipal Centro", "categoria": "Escola", "descricao": "Escola na area central"},
+      "geometry": {"type": "Point", "coordinates": [-43.3140, -21.8745]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"nome": "Comercio Central", "categoria": "Comercio", "descricao": "Polo comercial do centro"},
+      "geometry": {"type": "Point", "coordinates": [-43.3100, -21.8730]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"nome": "Industria Z4", "categoria": "Industria", "descricao": "Polo industrial proximo a BR-040"},
+      "geometry": {"type": "Point", "coordinates": [-43.3220, -21.8640]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"nome": "Terminal Rodoviario", "categoria": "Terminal/Parada", "descricao": "Ponto de parada urbana"},
+      "geometry": {"type": "Point", "coordinates": [-43.3130, -21.8755]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"nome": "Escola Sudeste", "categoria": "Escola", "descricao": "Atende bairros Z2"},
+      "geometry": {"type": "Point", "coordinates": [-43.3020, -21.8830]}
+    }
+  ]
+}

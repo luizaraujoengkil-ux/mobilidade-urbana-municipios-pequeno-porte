@@ -1,0 +1,24 @@
+{
+  "type": "FeatureCollection",
+  "name": "area_estudo_matias_barbosa",
+  "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "Area de Estudo - Matias Barbosa/MG",
+        "descricao": "Perimetro analitico aproximado do municipio para o estudo de mobilidade"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-43.3320, -21.8550],
+          [-43.2900, -21.8560],
+          [-43.2880, -21.8930],
+          [-43.3340, -21.8920],
+          [-43.3320, -21.8550]
+        ]]
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "type": "FeatureCollection",
+  "name": "linha_trem",
+  "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "Linha do Trem - Eixo Ferroviario",
+        "operadora": "MRS Logistica (aproximado)",
+        "tipo": "ferrovia",
+        "observacoes": "Tracado aproximado da ferrovia que atravessa Matias Barbosa"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-43.3300, -21.8590],
+          [-43.3260, -21.8640],
+          [-43.3220, -21.8680],
+          [-43.3170, -21.8710],
+          [-43.3120, -21.8730],
+          [-43.3060, -21.8760],
+          [-43.3000, -21.8790],
+          [-43.2940, -21.8830],
+          [-43.2890, -21.8880]
+        ]
+      }
+    }
+  ]
+}

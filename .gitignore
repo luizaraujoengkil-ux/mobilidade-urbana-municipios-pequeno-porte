@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Uploads do usuario (dados de sessao - nao versionar)
+data/uploads/*
+!data/uploads/.gitkeep
+
+# Cache OSMnx
+cache/
+*.osm
+*.osm.pbf
+
+# Editores / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Anthropic / Claude Code
+.claude/
