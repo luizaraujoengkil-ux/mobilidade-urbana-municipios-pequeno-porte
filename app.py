@@ -1153,6 +1153,42 @@ with tabs[3]:
     st.subheader("📍 Cadastro de pontos de interesse")
     st.caption("Pontos cadastrados aqui ficam disponiveis durante a sessao e aparecem no mapa.")
 
+    # ----- Toggle 'Manter' vs 'Liberar edicao' -----
+    if "points_edit_mode" not in st.session_state:
+        st.session_state.points_edit_mode = "manter"  # default: read-only nos cadastros
+
+    col_pt_a, col_pt_b = st.columns(2)
+    with col_pt_a:
+        if st.button(
+            "🔒 Manter dados do estudo atual",
+            use_container_width=True,
+            type="primary" if st.session_state.points_edit_mode == "manter" else "secondary",
+            key="btn_pts_manter",
+        ):
+            st.session_state.points_edit_mode = "manter"
+            st.rerun()
+    with col_pt_b:
+        if st.button(
+            "✏️ Liberar edicao (editar / remover pontos)",
+            use_container_width=True,
+            type="primary" if st.session_state.points_edit_mode == "editar" else "secondary",
+            key="btn_pts_editar",
+        ):
+            st.session_state.points_edit_mode = "editar"
+            st.rerun()
+
+    if st.session_state.points_edit_mode == "manter":
+        st.info(
+            "🔒 **Modo 'Manter'** ativo: os dados base do estudo permanecem preservados. "
+            "Voce **continua podendo adicionar novos pontos** (viadutos, pontes, etc.) "
+            "abaixo, mas a tabela existente fica em **somente leitura**."
+        )
+    else:
+        st.success(
+            "✏️ **Edicao liberada**: voce pode adicionar, editar e remover pontos. "
+            "Cuidado: alteracoes/remocoes refletem na aba 🛠️ Cenarios e na 📑 Relatorio."
+        )
+
     st.info(
         "💡 **Pontos com categorias de infraestrutura** "
         "(Viaduto proposto, Ponte proposta, Passagem inferior/superior/em nivel, "
@@ -1207,14 +1243,23 @@ with tabs[3]:
     if st.session_state.user_points.empty:
         st.info("Nenhum ponto cadastrado ainda.")
     else:
-        edited = st.data_editor(
-            st.session_state.user_points,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="user_points_editor",
-        )
-        if not edited.equals(st.session_state.user_points):
-            st.session_state.user_points = edited
+        if st.session_state.points_edit_mode == "manter":
+            # somente leitura - preserva os dados do estudo
+            st.dataframe(
+                st.session_state.user_points,
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption("🔒 Tabela em modo leitura. Clique em '✏️ Liberar edicao' acima para modificar.")
+        else:
+            edited = st.data_editor(
+                st.session_state.user_points,
+                num_rows="dynamic",
+                use_container_width=True,
+                key="user_points_editor",
+            )
+            if not edited.equals(st.session_state.user_points):
+                st.session_state.user_points = edited
 
         csv = st.session_state.user_points.to_csv(index=False).encode("utf-8")
         st.download_button(
