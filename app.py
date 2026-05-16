@@ -105,10 +105,14 @@ def show_welcome_screen() -> None:
             st.image(str(logo_path), width=140)
         else:
             st.markdown(
-                "<div style='font-size:96px;text-align:center;line-height:1;"
-                "color:#4A148C;'>🛡️</div>"
-                "<div style='text-align:center;font-size:0.7rem;color:#9C27B0;"
-                "letter-spacing:2px;font-weight:700;margin-top:4px;'>IME</div>",
+                "<div style='display:flex;align-items:center;justify-content:center;"
+                "height:140px;'>"
+                "<div style='font-size:3.2rem;color:#4A148C;font-weight:900;"
+                "letter-spacing:6px;font-family:Georgia, serif;"
+                "border:3px solid #4A148C;border-radius:12px;padding:14px 22px;"
+                "background:linear-gradient(135deg,#F3E5F5 0%,#FFFFFF 100%);'>"
+                "IME"
+                "</div></div>",
                 unsafe_allow_html=True,
             )
     with col_text:
@@ -206,10 +210,6 @@ def show_welcome_screen() -> None:
         "pode editar, importar arquivos KMZ/KML/GeoJSON, cadastrar pontos, ajustar "
         "zonas, simular intervencoes e gerar relatorios."
     )
-    if not has_logo:
-        st.caption(
-            "💡 Para exibir o logotipo do IME, salve o arquivo em `assets/logo_ime.png` no projeto."
-        )
 
 
 # Gate: se ainda nao escolheu, mostra a tela inicial e para
