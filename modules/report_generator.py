@@ -94,6 +94,153 @@ def build_markdown_report(
     return out.getvalue()
 
 
+def build_pdf_report(
+    area_nome: str,
+    zonas_df,
+    pontos_df,
+    od_matrix,
+    od_summary_df,
+    scenarios_compare,
+    best_scenario_row,
+) -> bytes | None:
+    """Gera relatorio em PDF usando reportlab. None se reportlab indisponivel."""
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak,
+        )
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+        from reportlab.lib.units import cm
+    except Exception:
+        return None
+
+    from io import BytesIO
+    import pandas as pd
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=2 * cm, rightMargin=2 * cm,
+        topMargin=2 * cm, bottomMargin=2 * cm,
+        title="Relatorio - Mobilidade Urbana",
+    )
+    styles = getSampleStyleSheet()
+    h_style = ParagraphStyle(
+        "Heading1Custom", parent=styles["Heading1"],
+        textColor=colors.HexColor("#4A148C"),
+    )
+    h2_style = ParagraphStyle(
+        "Heading2Custom", parent=styles["Heading2"],
+        textColor=colors.HexColor("#6A1B9A"),
+    )
+    body = styles["BodyText"]
+    body.alignment = TA_LEFT
+
+    def df_to_table(df: pd.DataFrame, max_rows: int = 12) -> Table:
+        if df is None or df.empty:
+            return Paragraph("<i>(sem dados)</i>", body)
+        df_disp = df.head(max_rows).copy()
+        if hasattr(df_disp.index, "name") and df_disp.index.name is not None:
+            df_disp = df_disp.reset_index()
+        elif not df_disp.index.equals(pd.RangeIndex(len(df_disp))):
+            df_disp = df_disp.reset_index()
+        data = [list(df_disp.columns)] + df_disp.astype(str).values.tolist()
+        # trunca strings longas
+        data = [[str(c)[:35] for c in row] for row in data]
+        tbl = Table(data, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND",   (0, 0), (-1, 0), colors.HexColor("#F3E5F5")),
+            ("TEXTCOLOR",    (0, 0), (-1, 0), colors.HexColor("#4A148C")),
+            ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0, 0), (-1, -1), 8),
+            ("GRID",         (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
+            ("ALIGN",        (0, 0), (-1, -1), "LEFT"),
+            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        return tbl
+
+    story = []
+    story.append(Paragraph("Relatorio - Mobilidade Urbana", h_style))
+    story.append(Paragraph(f"<b>Area de estudo:</b> {area_nome}", body))
+    story.append(Paragraph(f"<b>Gerado em:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", body))
+    story.append(Spacer(1, 0.4 * cm))
+
+    story.append(Paragraph("1. Descricao da area de estudo", h2_style))
+    story.append(Paragraph(
+        "Estudo de mobilidade urbana em municipio de pequeno porte, com analise do efeito "
+        "barreira gerado por ferrovia e rodovias federais/estaduais sobre a malha viaria local. "
+        f"Area analisada: <b>{area_nome}</b>.", body,
+    ))
+    story.append(Spacer(1, 0.4 * cm))
+
+    story.append(Paragraph("2. Zonas analiticas", h2_style))
+    story.append(df_to_table(zonas_df))
+    story.append(Spacer(1, 0.4 * cm))
+
+    story.append(Paragraph("3. Pontos de interesse", h2_style))
+    if pontos_df is not None and not pontos_df.empty:
+        story.append(df_to_table(pontos_df, max_rows=20))
+    else:
+        story.append(Paragraph("<i>Nenhum ponto cadastrado durante a sessao.</i>", body))
+    story.append(Spacer(1, 0.4 * cm))
+
+    story.append(PageBreak())
+
+    story.append(Paragraph("4. Matriz Origem-Destino", h2_style))
+    story.append(Paragraph(
+        "Modelo gravitacional simplificado: T_ij = (G_i &middot; A_j) / d_ij^&beta;, "
+        "com &beta;=2 e normalizacao percentual.", body,
+    ))
+    story.append(df_to_table(od_matrix))
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(Paragraph("Resumo de viagens por zona:", body))
+    story.append(df_to_table(od_summary_df))
+    story.append(Spacer(1, 0.4 * cm))
+
+    story.append(Paragraph("5. Comparacao de cenarios", h2_style))
+    if scenarios_compare is not None and not scenarios_compare.empty:
+        story.append(df_to_table(scenarios_compare))
+    else:
+        story.append(Paragraph("<i>Nenhum cenario adicional simulado.</i>", body))
+    story.append(Spacer(1, 0.3 * cm))
+
+    if best_scenario_row is not None:
+        story.append(Paragraph("Cenario mais vantajoso:", h2_style))
+        bs = [
+            f"<b>Cenario:</b> {best_scenario_row['cenario']}",
+            f"<b>Tipo:</b> {best_scenario_row['tipo']}",
+            f"<b>Distancia media (km):</b> {best_scenario_row['distancia_media_km']}",
+            f"<b>Tempo medio (min):</b> {best_scenario_row['tempo_medio_min']}",
+            f"<b>Reducao de percurso:</b> {best_scenario_row['reducao_percurso_pct']}%",
+            f"<b>Observacao:</b> {best_scenario_row['observacao']}",
+        ]
+        for line in bs:
+            story.append(Paragraph(line, body))
+    story.append(Spacer(1, 0.4 * cm))
+
+    story.append(Paragraph("6. Limitacoes do modelo", h2_style))
+    limits = [
+        "Modelo gravitacional simplificado, com distancia haversine ou de rede entre centroides;",
+        "Sem calibracao com contagens de trafego reais;",
+        "Intervencoes representadas como alteracoes do custo de arestas no grafo;",
+        "Dados iniciais aproximados - recomenda-se substituir por arquivos reais.",
+    ]
+    for line in limits:
+        story.append(Paragraph(f"&bull; {line}", body))
+    story.append(Spacer(1, 0.4 * cm))
+
+    story.append(Paragraph(
+        f"<i>{DISCLAIMER}</i>",
+        ParagraphStyle("Disclaimer", parent=body, textColor=colors.HexColor("#5D4037"),
+                        fontSize=8, leftIndent=10),
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
 def build_html_report(md_text: str, title: str = "Relatorio - Mobilidade Urbana") -> str:
     """Conversao simples de markdown para HTML (sem dependencias extras)."""
     # Conversao basica: paragrafos, headings, tabelas markdown

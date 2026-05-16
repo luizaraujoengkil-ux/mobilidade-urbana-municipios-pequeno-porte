@@ -13,3 +13,4 @@ plotly
 lxml
 requests
 markdown
+reportlab

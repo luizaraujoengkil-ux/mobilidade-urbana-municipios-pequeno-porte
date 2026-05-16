@@ -27,6 +27,7 @@ from modules import (
     osm_pois,
     report_generator,
     scenario_analysis as scen,
+    validation,
 )
 from modules.config import (
     CATEGORY_STYLE,
@@ -526,6 +527,13 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------------------------
+# BARRA DE PROGRESSO GLOBAL (etapas validadas)
+# ---------------------------------------------------------------------------
+with st.expander("📋 **Progresso do estudo** (clique para ver detalhes)", expanded=False):
+    validation.render_progress_bar(compact=False)
+
+
+# ---------------------------------------------------------------------------
 # ABAS
 # ---------------------------------------------------------------------------
 tabs = st.tabs(
@@ -950,6 +958,7 @@ with tabs[0]:
             if st.button("✅ Manter configuracao e ir para INTERVENCOES (etapa 6)",
                          use_container_width=True, type="primary", key="wiz_jump_to_pois"):
                 st.session_state.wizard_step_idx = 5
+                st.session_state.study_config_validated = True
                 st.rerun()
         with col_sh2:
             st.markdown(
@@ -1002,9 +1011,17 @@ with tabs[0]:
     step_renderers[cur_idx]()
 
     st.divider()
+    st.markdown("### ✅ Validar etapa de configuracao do estudo")
+    validation.render_validation_button(
+        state_key="study_config_validated",
+        pending_label="Confirmar e manter configuracao atual do estudo",
+        done_message="Configuracao atual mantida com sucesso.",
+        next_step_label="🗺️ Mapa",
+    )
     st.caption(
-        "💡 Apos completar as etapas, va nas abas **🔢 Matriz O-D**, **🛠️ Cenarios** e "
-        "**📑 Relatorio** para gerar a analise."
+        "💡 Apos validar a configuracao, va nas abas seguintes na ordem: "
+        "**🗺️ Mapa**, **📥 Importar**, **📍 Pontos**, **🔢 Matriz O-D**, **🛠️ Cenarios**, "
+        "**📊 Comparacao** e **📑 Relatorio**."
     )
 
 
@@ -1033,7 +1050,15 @@ def build_main_map() -> folium.Map:
     if show.get("rodovias"):
         map_utils.add_rodovias(m, layers.get("rodovias"))
     if show.get("pontos_viaduto"):
-        map_utils.add_pontos_viaduto(m, layers.get("pontos_viaduto"))
+        viad_gdf_full = layers.get("pontos_viaduto")
+        if viad_gdf_full is not None and not viad_gdf_full.empty:
+            active = st.session_state.get("active_viaducts", set(range(len(viad_gdf_full))))
+            if active:
+                idx_list = [i for i in active if 0 <= i < len(viad_gdf_full)]
+                if idx_list:
+                    map_utils.add_pontos_viaduto(m, viad_gdf_full.iloc[idx_list])
+        else:
+            map_utils.add_pontos_viaduto(m, viad_gdf_full)
     if show.get("pontos_interesse"):
         map_utils.add_pontos_interesse(m, layers.get("pontos_interesse"))
 
@@ -1101,6 +1126,70 @@ with tabs[1]:
             st.info(f"Ultimo clique: lat **{click['lat']:.5f}**, lon **{click['lng']:.5f}**\n\n"
                     f"Copie para adicionar um ponto na aba *Pontos / Edicao*.")
 
+    # ----- Toggles individuais dos pontos de estudo de viaduto -----
+    st.divider()
+    st.markdown("### 🟢 Pontos de estudo de viaduto - ativacao individual")
+    st.caption(
+        "Marque/desmarque cada ponto para incluir ou excluir da simulacao de cenarios. "
+        "**Maximo 4 ativos simultaneamente.** Se nenhum estiver ativo, os cenarios de "
+        "viaduto nao serao gerados (apenas a matriz O-D base sera apresentada)."
+    )
+    viad_gdf = st.session_state.layers.get("pontos_viaduto")
+    if viad_gdf is None or viad_gdf.empty:
+        st.info("Nenhum ponto de estudo de viaduto disponivel. Cadastre-os na aba 📍 Pontos / Edicao.")
+    else:
+        if "active_viaducts" not in st.session_state:
+            st.session_state.active_viaducts = set(range(min(4, len(viad_gdf))))
+        current_active = set(st.session_state.active_viaducts)
+
+        # Distribui checkboxes em colunas (max 4 visiveis lado a lado)
+        n_pts = len(viad_gdf)
+        cols_chk = st.columns(min(n_pts, 4))
+        new_active = set()
+        for i, (_, row) in enumerate(viad_gdf.iterrows()):
+            nome = row.get("nome", f"Ponto {i+1}")
+            descricao = row.get("descricao", "")
+            with cols_chk[i % len(cols_chk)]:
+                was_active = i in current_active
+                # bloqueia novos checkboxes se ja temos 4 e este nao estava ativo
+                would_exceed = (len(new_active) >= 4) and not was_active
+                checked = st.checkbox(
+                    f"**{nome}**",
+                    value=was_active,
+                    key=f"chk_viad_{i}",
+                    help=descricao,
+                    disabled=would_exceed,
+                )
+                if checked and not would_exceed:
+                    new_active.add(i)
+
+        # Detecta mudanca e invalida o passo se o usuario alterou
+        if new_active != current_active:
+            st.session_state.active_viaducts = new_active
+            validation.invalidate("map_step_validated")
+            st.rerun()
+
+        active_count = len(st.session_state.active_viaducts)
+        if active_count == 0:
+            st.warning(
+                "⚠️ **Nenhum ponto de estudo de viaduto esta ativo.** A matriz origem-destino "
+                "sera apresentada sem simulacao de intervencao."
+            )
+        elif active_count == len(viad_gdf):
+            st.success(f"✅ Todos os {active_count} pontos ativos - simulacao considera todos simultaneamente.")
+        else:
+            st.info(f"✅ {active_count} de {len(viad_gdf)} pontos ativos. Apenas estes entram nos cenarios.")
+
+    # ----- Botao de validacao da etapa Mapa -----
+    st.divider()
+    st.markdown("### ✅ Salvar alteracoes do mapa")
+    validation.render_validation_button(
+        state_key="map_step_validated",
+        pending_label="Salvar alteracoes do mapa",
+        done_message="Alteracoes do mapa salvas com sucesso.",
+        next_step_label="📥 Importar Arquivos Geograficos",
+    )
+
 
 # ===========================================================================
 # ABA 2 - IMPORTAR
@@ -1123,6 +1212,7 @@ with tabs[2]:
             try:
                 gdf = data_loader.load_uploaded_file(f)
                 st.session_state.uploaded_layers[f.name] = gdf
+                validation.invalidate("imports_step_validated")
                 st.success(f"✅ {f.name} carregado ({len(gdf)} feicoes)")
             except Exception as exc:
                 st.error(f"❌ Falha ao ler {f.name}: {exc}")
@@ -1144,6 +1234,26 @@ with tabs[2]:
     else:
         st.info("Nenhum arquivo carregado. Voce pode usar arquivos KMZ/KML do seu trabalho real "
                 "para substituir os dados de exemplo.")
+
+    # ----- Pergunta + validacao da etapa Importar -----
+    st.divider()
+    st.markdown("### 📥 Deseja importar outros dados geograficos relevantes para este estudo?")
+    if "imports_choice" not in st.session_state:
+        st.session_state.imports_choice = "Nao, manter dados atuais"
+    st.session_state.imports_choice = st.radio(
+        "Selecione uma opcao:",
+        options=["Sim, importar arquivos (use o uploader acima)", "Nao, manter dados atuais"],
+        index=0 if st.session_state.imports_choice.startswith("Sim") else 1,
+        key="imports_choice_radio",
+    )
+
+    st.markdown("### ✅ Confirmar dados geograficos")
+    validation.render_validation_button(
+        state_key="imports_step_validated",
+        pending_label="Confirmar dados geograficos",
+        done_message="Dados geograficos confirmados.",
+        next_step_label="📍 Cadastro de Pontos de Interesse",
+    )
 
 
 # ===========================================================================
@@ -1237,6 +1347,7 @@ with tabs[3]:
                 st.session_state.user_points = pd.concat(
                     [st.session_state.user_points, new_row], ignore_index=True
                 )
+                validation.invalidate("pois_step_validated")
                 st.success(f"Ponto '{nome}' adicionado.")
 
     st.markdown("##### Pontos cadastrados na sessao")
@@ -1269,12 +1380,36 @@ with tabs[3]:
             mime="text/csv",
         )
 
+    # ----- Validacao da etapa Pontos de Interesse -----
+    st.divider()
+    if st.session_state.user_points.empty:
+        st.info(
+            "ℹ️ **Nenhum ponto de interesse foi cadastrado ate o momento.** "
+            "Voce pode cadastrar pontos manualmente, importar arquivo ou manter o estudo "
+            "sem pontos de interesse adicionais."
+        )
+    st.markdown("### ✅ Confirmar pontos de interesse")
+    validation.render_validation_button(
+        state_key="pois_step_validated",
+        pending_label="Confirmar pontos de interesse",
+        done_message="Pontos de interesse confirmados.",
+        next_step_label="🔢 Matriz O-D",
+    )
+
 
 # ===========================================================================
 # ABA 4 - MATRIZ O-D
 # ===========================================================================
 with tabs[4]:
     st.subheader("🔢 Matriz Origem-Destino simplificada (modelo gravitacional)")
+    st.info(
+        "📘 **A matriz origem-destino simplificada representa os fluxos potenciais entre "
+        "zonas analiticas** com base em pesos de geracao, pesos de atracao e distancia "
+        "entre zonas. **Os pontos de estudo de viaduto NAO alteram esta matriz "
+        "diretamente** &mdash; eles serao considerados na etapa de 🛠️ Cenarios, onde as "
+        "intervencoes mudam o trajeto pelas ruas e, consequentemente, a distancia "
+        "efetiva entre as zonas."
+    )
     st.markdown(
         "Edite os pesos de **geracao** e **atracao** de cada zona. "
         "A matriz e calculada por $T_{ij} = (G_i \\cdot A_j) / d_{ij}^{\\beta}$, "
@@ -1297,6 +1432,8 @@ with tabs[4]:
         )
         st.session_state.zonas_df = zonas_edit
 
+    if recalc:
+        validation.invalidate("od_step_validated")
     if recalc or st.session_state.od_result is None:
         try:
             zonas_gdf = st.session_state.layers.get("zonas")
@@ -1344,6 +1481,16 @@ with tabs[4]:
         st.info("Ative a camada **'Linhas de fluxo O-D'** na barra lateral para visualizar "
                 "no mapa as linhas com espessura proporcional ao fluxo.")
 
+    # ----- Validacao da etapa Matriz O-D -----
+    st.divider()
+    st.markdown("### ✅ Confirmar Matriz O-D")
+    validation.render_validation_button(
+        state_key="od_step_validated",
+        pending_label="Confirmar Matriz O-D",
+        done_message="Matriz O-D confirmada. Os dados estao validados para a etapa de Cenarios.",
+        next_step_label="🛠️ Cenarios",
+    )
+
 
 # ===========================================================================
 # ABA 5 - CENARIOS
@@ -1366,6 +1513,57 @@ with tabs[5]:
         "Crie cenarios com novas ligacoes viarias, viadutos, pontes ou bloqueios. "
         "As intervencoes alteram arestas do grafo analitico (centroides de zona + pontos de viaduto)."
     )
+
+    # Aviso sobre pontos de viaduto ativos
+    viad_gdf_layer = st.session_state.layers.get("pontos_viaduto")
+    active_viaducts_set = st.session_state.get("active_viaducts", set())
+    if viad_gdf_layer is not None and not viad_gdf_layer.empty:
+        n_active = len(active_viaducts_set)
+        n_total = len(viad_gdf_layer)
+        if n_active == 0:
+            st.warning(
+                "⚠️ **Nenhum ponto de estudo de viaduto esta ativo na aba 🗺️ Mapa.** "
+                "Cenarios com viaduto NAO serao gerados ate que pelo menos um ponto seja ativado. "
+                "Apenas o cenario atual (baseline) e a matriz O-D estarao disponiveis."
+            )
+        else:
+            st.success(f"✅ {n_active} de {n_total} ponto(s) de viaduto ativo(s) - "
+                       f"cenarios de viaduto serao considerados.")
+
+    # ----- Modo de simulacao: cenario individual ou completa -----
+    if "scenarios_mode" not in st.session_state:
+        st.session_state.scenarios_mode = None
+    if "scenarios_generated" not in st.session_state:
+        st.session_state.scenarios_generated = False
+
+    st.markdown("### 🎯 Escolha o tipo de simulacao")
+    col_mode1, col_mode2 = st.columns(2)
+    with col_mode1:
+        sel_a = st.button(
+            "🎯 Simulacao de cenario (individual)",
+            use_container_width=True,
+            type="primary" if st.session_state.scenarios_mode == "individual" else "secondary",
+            help="Escolha manualmente um cenario especifico (viaduto, ponte, nova ligacao, "
+                 "bloqueio, etc.)",
+            key="btn_mode_individual",
+        )
+        if sel_a:
+            st.session_state.scenarios_mode = "individual"
+            st.rerun()
+    with col_mode2:
+        sel_b = st.button(
+            "🚀 Simulacao completa (automatica)",
+            use_container_width=True,
+            type="primary" if st.session_state.scenarios_mode == "completa" else "secondary",
+            help="Gera automaticamente um cenario para cada ponto de viaduto ativo.",
+            key="btn_mode_completa",
+        )
+        if sel_b:
+            st.session_state.scenarios_mode = "completa"
+            st.rerun()
+
+    if st.session_state.scenarios_mode is None:
+        st.info("👆 Selecione um dos modos acima para comecar.")
 
     # Reconstrucao do grafo sempre que esta aba e exibida, para incorporar
     # pontos novos cadastrados pelo usuario na aba Pontos/Edicao.
@@ -1402,7 +1600,78 @@ with tabs[5]:
 
     if not node_options:
         st.warning("Nenhum no disponivel. Verifique se as zonas estao carregadas.")
-    else:
+    elif st.session_state.scenarios_mode == "completa":
+        st.markdown("### 🚀 Simulacao completa (automatica)")
+        st.caption(
+            "Gera um cenario para cada **ponto de viaduto ativo** na aba 🗺️ Mapa, "
+            "conectando-o a zona mais proxima com fator de impedancia 0.5 (atalho por viaduto)."
+        )
+        viad_layer = st.session_state.layers.get("pontos_viaduto")
+        active_set = st.session_state.get("active_viaducts", set())
+        if viad_layer is None or viad_layer.empty or not active_set:
+            st.warning("Nenhum ponto de viaduto ativo - habilite na aba 🗺️ Mapa primeiro.")
+        else:
+            if st.button("🛠️ Gerar cenarios automaticamente (1 por viaduto ativo)",
+                         use_container_width=True, type="secondary", key="btn_gen_auto"):
+                # remove cenarios automaticos anteriores (mantem o atual e os manuais)
+                st.session_state.scenarios = [
+                    s for s in st.session_state.scenarios
+                    if s.nome == "Cenario Atual" or not s.nome.startswith("[AUTO]")
+                ]
+                # encontra nos do tipo viaduto correspondentes aos pontos ativos
+                viaduto_nodes = [n for n, d in G.nodes(data=True) if d.get("tipo") == "viaduto"]
+                zona_nodes = [n for n, d in G.nodes(data=True) if d.get("tipo") == "zona"]
+                created = 0
+                for i in active_set:
+                    if i >= len(viad_layer):
+                        continue
+                    p_nome = viad_layer.iloc[i].get("nome", f"V{i+1}")
+                    # encontra o node de viaduto correspondente
+                    target_v = next((n for n in viaduto_nodes if G.nodes[n].get("nome") == p_nome), None)
+                    if target_v is None and viaduto_nodes:
+                        target_v = viaduto_nodes[i % len(viaduto_nodes)]
+                    if target_v is None or not zona_nodes:
+                        continue
+                    # zona mais proxima ao viaduto via haversine
+                    v_lat, v_lon = G.nodes[target_v]["lat"], G.nodes[target_v]["lon"]
+                    best_z, best_d = None, float("inf")
+                    for z in zona_nodes:
+                        z_lat, z_lon = G.nodes[z]["lat"], G.nodes[z]["lon"]
+                        d = od_matrix.haversine_km(v_lat, v_lon, z_lat, z_lon)
+                        if d < best_d:
+                            best_d, best_z = d, z
+                    if best_z is None:
+                        continue
+                    s = scen.Scenario(
+                        nome=f"[AUTO] Viaduto {p_nome}",
+                        tipo="Cenario com viaduto",
+                        descricao=f"Cenario automatico ligando {target_v} a {best_z}",
+                    )
+                    s.intervencoes.append({
+                        "from": target_v, "to": best_z, "factor": 0.5, "tipo": "viaduto",
+                    })
+                    st.session_state.scenarios.append(s)
+                    created += 1
+                if created:
+                    st.success(f"✅ {created} cenarios automaticos gerados.")
+                    st.session_state.scenarios_generated = True
+                    validation.invalidate("scenarios_step_validated")
+                    st.rerun()
+                else:
+                    st.warning("Nenhum cenario foi gerado.")
+
+        st.markdown("##### Cenarios cadastrados")
+        if st.session_state.scenarios:
+            df_scen = pd.DataFrame([{
+                "nome": s.nome,
+                "tipo": s.tipo,
+                "descricao": s.descricao,
+                "intervencoes": len(s.intervencoes),
+                "bloqueios": len(s.bloqueios),
+            } for s in st.session_state.scenarios])
+            st.dataframe(df_scen, use_container_width=True)
+
+    elif st.session_state.scenarios_mode == "individual":
         with st.form("form_cenario", clear_on_submit=False):
             st.markdown("##### Novo cenario")
             col1, col2 = st.columns([2, 2])
@@ -1432,6 +1701,8 @@ with tabs[5]:
                     else:
                         s.intervencoes.append({"from": from_node, "to": to_node, "factor": factor, "tipo": cen_tipo})
                     st.session_state.scenarios.append(s)
+                    st.session_state.scenarios_generated = True
+                    validation.invalidate("scenarios_step_validated")
                     st.success(f"Cenario '{cen_nome}' adicionado.")
 
         st.markdown("##### Cenarios cadastrados")
@@ -1456,7 +1727,26 @@ with tabs[5]:
                     st.warning("Nao remova o 'Cenario Atual' - ele e referencia.")
                 else:
                     del st.session_state.scenarios[idx_to_remove]
+                    validation.invalidate("scenarios_step_validated")
                     st.rerun()
+
+    # ----- Validacao da etapa Cenarios -----
+    if st.session_state.scenarios_mode is not None:
+        st.divider()
+        st.markdown("### ✅ Confirmar simulacao de cenarios")
+        n_extra = sum(1 for s in st.session_state.scenarios if s.nome != "Cenario Atual")
+        if n_extra == 0:
+            st.info(
+                "ℹ️ Voce ainda nao adicionou nenhum cenario alem do baseline. "
+                "Adicione ao menos um cenario antes de validar esta etapa "
+                "(ou marque como validado para usar apenas o baseline)."
+            )
+        validation.render_validation_button(
+            state_key="scenarios_step_validated",
+            pending_label="Gerar / confirmar simulacao de cenarios",
+            done_message="Simulacao de cenarios gerada com sucesso.",
+            next_step_label="📊 Comparacao e 📑 Relatorio",
+        )
 
 
 # ===========================================================================
@@ -1464,6 +1754,15 @@ with tabs[5]:
 # ===========================================================================
 with tabs[6]:
     st.subheader("📊 Comparacao de cenarios")
+
+    # Gating: so mostra se cenarios foram efetivamente gerados
+    if not st.session_state.get("scenarios_generated", False):
+        st.warning(
+            "⚠️ **Nenhuma simulacao de cenario foi gerada ainda.** "
+            "Acesse a aba 🛠️ Cenarios e clique em **'Simulacao de cenario'** ou "
+            "**'Simulacao completa'** para gerar a comparacao."
+        )
+        st.stop()
 
     G = get_or_build_base_graph()
     if not st.session_state.scenarios:
@@ -1653,11 +1952,11 @@ with tabs[7]:
     st.divider()
     st.markdown("##### ⬇️ Download do relatorio")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     with col1:
         st.download_button(
-            "Baixar .md",
+            "📄 Baixar .md",
             data=md.encode("utf-8"),
             file_name=f"relatorio_{stamp}.md",
             mime="text/markdown",
@@ -1665,7 +1964,7 @@ with tabs[7]:
         )
     with col2:
         st.download_button(
-            "Baixar .txt",
+            "📃 Baixar .txt",
             data=md.encode("utf-8"),
             file_name=f"relatorio_{stamp}.txt",
             mime="text/plain",
@@ -1674,12 +1973,36 @@ with tabs[7]:
     with col3:
         html = report_generator.build_html_report(md)
         st.download_button(
-            "Baixar .html",
+            "🌐 Baixar .html",
             data=html.encode("utf-8"),
             file_name=f"relatorio_{stamp}.html",
             mime="text/html",
             use_container_width=True,
         )
+    with col4:
+        try:
+            pdf_bytes = report_generator.build_pdf_report(
+                area_nome=area_nome_report,
+                zonas_df=st.session_state.zonas_df,
+                pontos_df=st.session_state.user_points,
+                od_matrix=od if od is not None else pd.DataFrame(),
+                od_summary_df=od_sum if od_sum is not None else pd.DataFrame(),
+                scenarios_compare=df_compare,
+                best_scenario_row=best,
+            )
+        except Exception as exc:
+            pdf_bytes = None
+            st.caption(f"⚠️ PDF indisponivel: {exc}")
+        if pdf_bytes is not None:
+            st.download_button(
+                "📕 Baixar .pdf",
+                data=pdf_bytes,
+                file_name=f"relatorio_{stamp}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        else:
+            st.info("📕 PDF indisponivel - reportlab nao instalado neste ambiente. Use .html ou .md.")
 
 
 # ---------------------------------------------------------------------------
