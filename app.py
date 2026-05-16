@@ -107,7 +107,12 @@ def init_session_state() -> None:
         "user_points": True,
         "uploaded": True,
         "flow": False,
+        "osm": True,
     }
+
+    # Malha viaria do OSM (carregada sob demanda)
+    st.session_state.osm_graph = None
+    st.session_state.osm_edges = None
 
     # Resultados calculados
     st.session_state.od_result = None  # DataFrame
@@ -157,12 +162,16 @@ with st.expander("ℹ️ **Como usar este simulador** (clique para abrir)", expa
 
         ### 📖 Roteiro de analise (recomendado):
         1. **🗺️ Mapa** &mdash; visualize a area de estudo, zonas e infraestruturas existentes.
-        2. **📥 Importar Arquivos** &mdash; carregue seus dados reais (opcional).
-        3. **📍 Pontos / Edicao** &mdash; cadastre travessias criticas, pontes/viadutos propostos, escolas etc.
-        4. **🔢 Matriz O-D** &mdash; ajuste pesos de viagens (geracao / atracao) por zona e veja o fluxo estimado.
-        5. **🛠️ Cenarios** &mdash; crie alternativas ("e se construirmos um viaduto aqui?").
-        6. **📊 Comparacao** &mdash; veja o impacto de cada cenario em relacao ao atual.
-        7. **📑 Relatorio** &mdash; baixe o resumo em `.md`, `.txt` ou `.html`.
+        2. **🛣️ Malha viaria real (OSM)** &mdash; *na sidebar*, clique em **"Baixar / atualizar"** para
+           trazer as ruas reais do OpenStreetMap. **Isso e essencial** para que os cenarios de
+           viaduto / ponte / passagem de nivel calculem distancias atraves das ruas reais.
+        3. **📥 Importar Arquivos** &mdash; carregue seus dados reais (opcional).
+        4. **📍 Pontos / Edicao** &mdash; cadastre travessias criticas, pontes/viadutos propostos, escolas etc.
+        5. **🔢 Matriz O-D** &mdash; ajuste pesos de viagens (geracao / atracao) por zona e veja o fluxo estimado.
+        6. **🛠️ Cenarios** &mdash; crie alternativas ("e se construirmos um viaduto aqui?")
+           &mdash; as intervencoes sao adicionadas como novas arestas sobre a malha viaria real.
+        7. **📊 Comparacao** &mdash; veja o impacto de cada cenario em relacao ao atual.
+        8. **📑 Relatorio** &mdash; baixe o resumo em `.md`, `.txt` ou `.html`.
 
         ### 💡 Dicas rapidas:
         - **Clique no mapa** para ver as coordenadas (uteis para cadastrar pontos).
@@ -240,6 +249,53 @@ with st.sidebar:
             "3. Atualize as zonas e pesos na aba **🔢 Matriz O-D**."
         )
 
+    st.subheader("🛣️ Malha viaria real (OSM)")
+    st.caption(
+        "Baixe a malha viaria real do OpenStreetMap centrada na area de estudo. "
+        "Ela e a base sobre a qual viadutos, pontes e passagens de nivel sao avaliados."
+    )
+    osm_radius = st.slider(
+        "Raio de download (metros)",
+        min_value=500, max_value=5000,
+        value=int(st.session_state.get("osm_radius", 1500)),
+        step=100,
+        key="osm_radius",
+        help="Distancia do centro da area de estudo. Raios maiores demoram mais.",
+    )
+    osm_status = (
+        f"✅ Carregada ({st.session_state.osm_graph.number_of_nodes()} nos, "
+        f"{st.session_state.osm_graph.number_of_edges()} arestas)"
+        if st.session_state.osm_graph is not None
+        else "⚪ Nao carregada"
+    )
+    st.markdown(f"**Status:** {osm_status}")
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("📥 Baixar / atualizar", use_container_width=True, key="btn_osm_load"):
+            if not net.OSMNX_AVAILABLE:
+                st.error("OSMnx nao esta disponivel neste ambiente.")
+            else:
+                center = st.session_state.get("map_center", MATIAS_BARBOSA_CENTER)
+                with st.spinner("Baixando malha do OpenStreetMap..."):
+                    G_osm = net.load_osm_network(center[0], center[1], osm_radius)
+                    if G_osm is None:
+                        st.error("Falha no download. Verifique conexao ou raio.")
+                    else:
+                        st.session_state.osm_graph = G_osm
+                        st.session_state.osm_edges = net.osm_edges_gdf(G_osm)
+                        st.session_state.base_graph = None  # forca rebuild do grafo de analise
+                        st.success(
+                            f"Malha carregada: {G_osm.number_of_nodes()} nos, "
+                            f"{G_osm.number_of_edges()} arestas"
+                        )
+                        st.rerun()
+    with col_btn2:
+        if st.button("🗑️ Limpar OSM", use_container_width=True, key="btn_osm_clear"):
+            st.session_state.osm_graph = None
+            st.session_state.osm_edges = None
+            st.session_state.base_graph = None
+            st.rerun()
+
     st.subheader("🗺️ Camadas visiveis")
     show = st.session_state.show_layers
     show["area_estudo"]     = st.checkbox("Area de estudo",        value=show["area_estudo"])
@@ -250,6 +306,7 @@ with st.sidebar:
     show["pontos_interesse"]= st.checkbox("Pontos de interesse",   value=show["pontos_interesse"])
     show["user_points"]     = st.checkbox("Pontos cadastrados na sessao", value=show["user_points"])
     show["uploaded"]        = st.checkbox("Arquivos importados",   value=show["uploaded"])
+    show["osm"]             = st.checkbox("Malha viaria (OSM)",    value=show.get("osm", True))
     show["flow"]            = st.checkbox("Linhas de fluxo O-D",   value=show["flow"])
 
     st.divider()
@@ -336,6 +393,10 @@ def build_main_map() -> folium.Map:
     if show.get("uploaded"):
         for name, gdf in st.session_state.uploaded_layers.items():
             map_utils.add_custom_layer(m, gdf, f"[Upload] {name}", color="#1565C0")
+
+    # Malha viaria real (OSM)
+    if show.get("osm") and st.session_state.osm_edges is not None:
+        map_utils.add_osm_network(m, st.session_state.osm_edges)
 
     # Linhas de fluxo
     if show.get("flow") and st.session_state.flow_records:
@@ -559,9 +620,10 @@ with tabs[3]:
 # ===========================================================================
 def get_or_build_base_graph():
     if st.session_state.base_graph is None:
-        st.session_state.base_graph = net.build_synthetic_graph(
+        st.session_state.base_graph = net.build_analysis_graph(
             st.session_state.layers.get("zonas"),
             st.session_state.layers.get("pontos_viaduto"),
+            osm_graph=st.session_state.get("osm_graph"),
         )
     return st.session_state.base_graph
 
@@ -574,7 +636,25 @@ with tabs[4]:
     )
 
     G = get_or_build_base_graph()
-    node_options = [n for n in G.nodes]
+    # Mostra apenas nos analiticos (zonas e pontos de viaduto); os nos OSM
+    # sao apenas a estrutura interna usada para calcular caminhos reais.
+    node_options = [
+        n for n, d in G.nodes(data=True)
+        if d.get("tipo") in ("zona", "viaduto")
+    ]
+
+    if st.session_state.get("osm_graph") is not None:
+        st.info(
+            f"🛣️ Malha viaria OSM ativa - as distancias entre zonas sao calculadas "
+            f"atraves das ruas reais ({st.session_state.osm_graph.number_of_edges()} segmentos). "
+            f"As intervencoes (viaduto/ponte/passagem de nivel) sao adicionadas como "
+            f"novas arestas que se conectam a essa malha."
+        )
+    else:
+        st.warning(
+            "⚠️ Malha viaria OSM nao carregada. As distancias usam haversine entre centroides. "
+            "Para resultados mais realistas, baixe a malha na barra lateral em **🛣️ Malha viaria real (OSM)**."
+        )
 
     if not node_options:
         st.warning("Nenhum no disponivel. Verifique se as zonas estao carregadas.")

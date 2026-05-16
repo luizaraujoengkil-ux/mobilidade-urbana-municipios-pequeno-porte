@@ -181,6 +181,36 @@ def add_pontos_interesse(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True
     fg.add_to(m)
 
 
+def add_osm_network(m: folium.Map, edges_gdf: gpd.GeoDataFrame, show: bool = True) -> None:
+    """Renderiza a malha viaria do OpenStreetMap como uma camada de linhas finas."""
+    if edges_gdf is None or len(edges_gdf) == 0:
+        return
+    fg = folium.FeatureGroup(name="Malha viaria (OSM)", show=show)
+    # estilo por tipo de via, se a propriedade 'highway' estiver disponivel
+    def style_fn(feat):
+        props = feat.get("properties", {})
+        hw = props.get("highway") if props else None
+        if isinstance(hw, list):
+            hw = hw[0] if hw else None
+        if hw in ("motorway", "trunk", "primary"):
+            return {"color": "#4A148C", "weight": 3.0, "opacity": 0.85}
+        if hw in ("secondary", "tertiary"):
+            return {"color": "#6A1B9A", "weight": 2.0, "opacity": 0.75}
+        return {"color": "#888888", "weight": 1.2, "opacity": 0.65}
+
+    keep_cols = [c for c in ["highway", "name", "length"] if c in edges_gdf.columns]
+    try:
+        gj = edges_gdf[keep_cols + ["geometry"]].to_json() if keep_cols else edges_gdf[["geometry"]].to_json()
+    except Exception:
+        gj = edges_gdf.to_json()
+    folium.GeoJson(
+        gj,
+        style_function=style_fn,
+        name="Malha viaria (OSM)",
+    ).add_to(fg)
+    fg.add_to(m)
+
+
 def add_custom_layer(m: folium.Map, gdf: gpd.GeoDataFrame, name: str, color: str = "#1565C0") -> None:
     if gdf is None or gdf.empty:
         return

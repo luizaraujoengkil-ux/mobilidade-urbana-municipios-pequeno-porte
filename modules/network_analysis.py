@@ -42,11 +42,140 @@ def download_osm_graph(
             return None
 
 
+def load_osm_network(
+    lat: float,
+    lon: float,
+    radius_m: int = 1500,
+    network_type: str = "drive",
+) -> Optional[nx.MultiDiGraph]:
+    """Baixa a malha viaria do OSM em um circulo ao redor de (lat, lon)."""
+    if not OSMNX_AVAILABLE:
+        return None
+    try:
+        G = ox.graph_from_point(
+            (lat, lon),
+            dist=radius_m,
+            network_type=network_type,
+            simplify=True,
+        )
+        return G
+    except Exception:
+        return None
+
+
+def find_nearest_osm_node(G_osm: nx.MultiDiGraph, lat: float, lon: float):
+    """Retorna o id do no OSM mais proximo de (lat, lon). None se indisponivel."""
+    if not OSMNX_AVAILABLE or G_osm is None:
+        return None
+    try:
+        return ox.distance.nearest_nodes(G_osm, X=lon, Y=lat)
+    except Exception:
+        return None
+
+
 def graph_to_geodataframes(G: nx.MultiDiGraph) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     if G is None or not OSMNX_AVAILABLE:
         return gpd.GeoDataFrame(), gpd.GeoDataFrame()
     nodes, edges = ox.graph_to_gdfs(G)
     return nodes, edges
+
+
+def osm_edges_gdf(G_osm: nx.MultiDiGraph) -> Optional[gpd.GeoDataFrame]:
+    """GeoDataFrame com as arestas do grafo OSM (para plotar no mapa)."""
+    if G_osm is None or not OSMNX_AVAILABLE:
+        return None
+    try:
+        _, edges = ox.graph_to_gdfs(G_osm, nodes=False, edges=True)
+        return edges
+    except Exception:
+        return None
+
+
+def build_analysis_graph(
+    zonas_gdf: gpd.GeoDataFrame,
+    pontos_viaduto: Optional[gpd.GeoDataFrame] = None,
+    osm_graph: Optional[nx.MultiDiGraph] = None,
+) -> nx.Graph:
+    """Constroi grafo combinando OSM (se disponivel) + nos analiticos.
+
+    - Se OSM disponivel: usa a malha viaria real como base. Cada zona / ponto
+      de viaduto e conectado ao no OSM mais proximo por um 'connector'.
+      Distancias entre zonas passam a refletir o trajeto pelas ruas.
+    - Se OSM indisponivel: cai no comportamento sintetico (mesh haversine).
+    """
+    G = nx.Graph()
+
+    # --- 1. Importa nos e arestas do OSM (se disponivel) ----------------
+    has_osm = osm_graph is not None and OSMNX_AVAILABLE
+    if has_osm:
+        for n, data in osm_graph.nodes(data=True):
+            G.add_node(
+                f"OSM:{n}",
+                lat=data.get("y"),
+                lon=data.get("x"),
+                tipo="osm",
+            )
+        for u, v, data in osm_graph.edges(data=True):
+            length_m = data.get("length", 0)
+            length_km = length_m / 1000.0 if length_m else haversine_km(
+                osm_graph.nodes[u]["y"], osm_graph.nodes[u]["x"],
+                osm_graph.nodes[v]["y"], osm_graph.nodes[v]["x"],
+            )
+            u_id, v_id = f"OSM:{u}", f"OSM:{v}"
+            # mantem so a aresta mais curta entre o par (Graph nao-direcionado)
+            if G.has_edge(u_id, v_id):
+                if length_km < G[u_id][v_id]["weight"]:
+                    G[u_id][v_id]["weight"] = length_km
+                    G[u_id][v_id]["length_km"] = length_km
+            else:
+                G.add_edge(u_id, v_id, weight=length_km, length_km=length_km, tipo="osm")
+
+    # --- 2. Adiciona nos analiticos (zonas) -----------------------------
+    analysis_nodes = []
+    if zonas_gdf is not None and not zonas_gdf.empty:
+        g = zonas_gdf.to_crs("EPSG:4326").copy()
+        g["centroid"] = g.geometry.centroid
+        for _, row in g.iterrows():
+            node_id = f"Z:{row['zona']}"
+            lat, lon = float(row.centroid.y), float(row.centroid.x)
+            G.add_node(node_id, lat=lat, lon=lon, tipo="zona",
+                       nome=row.get("nome", row["zona"]))
+            analysis_nodes.append(node_id)
+            if has_osm:
+                osm_id = find_nearest_osm_node(osm_graph, lat, lon)
+                if osm_id is not None and f"OSM:{osm_id}" in G:
+                    onode = osm_graph.nodes[osm_id]
+                    dist = haversine_km(lat, lon, onode["y"], onode["x"])
+                    G.add_edge(node_id, f"OSM:{osm_id}",
+                               weight=dist, length_km=dist, tipo="connector")
+
+    # --- 3. Adiciona pontos de viaduto ---------------------------------
+    if pontos_viaduto is not None and not pontos_viaduto.empty:
+        for idx, row in pontos_viaduto.iterrows():
+            node_id = f"V:{row.get('nome', idx)}"
+            lat, lon = float(row.geometry.y), float(row.geometry.x)
+            G.add_node(node_id, lat=lat, lon=lon, tipo="viaduto",
+                       nome=row.get("nome", str(idx)))
+            analysis_nodes.append(node_id)
+            if has_osm:
+                osm_id = find_nearest_osm_node(osm_graph, lat, lon)
+                if osm_id is not None and f"OSM:{osm_id}" in G:
+                    onode = osm_graph.nodes[osm_id]
+                    dist = haversine_km(lat, lon, onode["y"], onode["x"])
+                    G.add_edge(node_id, f"OSM:{osm_id}",
+                               weight=dist, length_km=dist, tipo="connector")
+
+    # --- 4. Fallback sem OSM: mesh haversine entre nos analiticos ------
+    if not has_osm and analysis_nodes:
+        for i, a in enumerate(analysis_nodes):
+            for b in analysis_nodes[i + 1:]:
+                dist = haversine_km(
+                    G.nodes[a]["lat"], G.nodes[a]["lon"],
+                    G.nodes[b]["lat"], G.nodes[b]["lon"],
+                )
+                G.add_edge(a, b, weight=dist, length_km=dist, tipo="base")
+
+    return G
 
 
 def build_synthetic_graph(
