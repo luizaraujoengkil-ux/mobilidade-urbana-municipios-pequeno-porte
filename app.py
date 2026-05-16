@@ -1625,7 +1625,6 @@ with tabs[5]:
                     s for s in st.session_state.scenarios
                     if s.nome == "Cenario Atual" or not s.nome.startswith("[AUTO]")
                 ]
-                # encontra nos do tipo viaduto correspondentes aos pontos ativos
                 viaduto_nodes = [n for n, d in G.nodes(data=True) if d.get("tipo") == "viaduto"]
                 zona_nodes = [n for n, d in G.nodes(data=True) if d.get("tipo") == "zona"]
                 created = 0
@@ -1633,29 +1632,71 @@ with tabs[5]:
                     if i >= len(viad_layer):
                         continue
                     p_nome = viad_layer.iloc[i].get("nome", f"V{i+1}")
-                    # encontra o node de viaduto correspondente
                     target_v = next((n for n in viaduto_nodes if G.nodes[n].get("nome") == p_nome), None)
                     if target_v is None and viaduto_nodes:
                         target_v = viaduto_nodes[i % len(viaduto_nodes)]
-                    if target_v is None or not zona_nodes:
+                    if target_v is None or len(zona_nodes) < 2:
                         continue
-                    # zona mais proxima ao viaduto via haversine
+
+                    # NOVO: viaduto serve como PONTE entre as 2 zonas que estao em
+                    # lados opostos do ponto. Buscamos as 2 zonas mais distantes
+                    # entre si que estejam relativamente proximas ao viaduto - elas
+                    # tipicamente representam o conflito ferrovia/rodovia que o
+                    # viaduto resolve.
                     v_lat, v_lon = G.nodes[target_v]["lat"], G.nodes[target_v]["lon"]
-                    best_z, best_d = None, float("inf")
+                    # raio de relevancia: zonas a ate 3 km do viaduto
+                    nearby = []
                     for z in zona_nodes:
                         z_lat, z_lon = G.nodes[z]["lat"], G.nodes[z]["lon"]
                         d = od_matrix.haversine_km(v_lat, v_lon, z_lat, z_lon)
-                        if d < best_d:
-                            best_d, best_z = d, z
-                    if best_z is None:
+                        if d <= 3.0:
+                            nearby.append((z, d))
+                    if len(nearby) < 2:
+                        # fallback: pega as 2 zonas mais proximas mesmo se distantes
+                        all_z = sorted(
+                            [(z, od_matrix.haversine_km(v_lat, v_lon,
+                                                         G.nodes[z]["lat"], G.nodes[z]["lon"]))
+                             for z in zona_nodes],
+                            key=lambda x: x[1],
+                        )
+                        nearby = all_z[:2]
+
+                    # entre as zonas proximas, escolhe o par com maior distancia
+                    # entre si (= par que mais se beneficia do atalho)
+                    best_pair, best_pair_d = None, -1.0
+                    for a_idx in range(len(nearby)):
+                        for b_idx in range(a_idx + 1, len(nearby)):
+                            z_a, z_b = nearby[a_idx][0], nearby[b_idx][0]
+                            d_ab = od_matrix.haversine_km(
+                                G.nodes[z_a]["lat"], G.nodes[z_a]["lon"],
+                                G.nodes[z_b]["lat"], G.nodes[z_b]["lon"],
+                            )
+                            if d_ab > best_pair_d:
+                                best_pair_d, best_pair = d_ab, (z_a, z_b)
+
+                    if best_pair is None:
                         continue
+                    z_a, z_b = best_pair
                     s = scen.Scenario(
                         nome=f"[AUTO] Viaduto {p_nome}",
                         tipo="Cenario com viaduto",
-                        descricao=f"Cenario automatico ligando {target_v} a {best_z}",
+                        descricao=(
+                            f"Viaduto em {p_nome} servindo como ponte entre "
+                            f"{z_a.replace('Z:','')} e {z_b.replace('Z:','')}"
+                        ),
                     )
+                    # Duas arestas: V -> Z_a (factor 0.4) e V -> Z_b (factor 0.4)
+                    # Isso permite que Z_a <-> Z_b passem por V como atalho.
                     s.intervencoes.append({
-                        "from": target_v, "to": best_z, "factor": 0.5, "tipo": "viaduto",
+                        "from": target_v, "to": z_a, "factor": 0.4, "tipo": "viaduto",
+                    })
+                    s.intervencoes.append({
+                        "from": target_v, "to": z_b, "factor": 0.4, "tipo": "viaduto",
+                    })
+                    # Aresta direta entre as duas zonas com fator pequeno,
+                    # representando que o viaduto efetivamente encurta o trajeto.
+                    s.intervencoes.append({
+                        "from": z_a, "to": z_b, "factor": 0.5, "tipo": "viaduto-shortcut",
                     })
                     st.session_state.scenarios.append(s)
                     created += 1
