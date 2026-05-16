@@ -1165,8 +1165,9 @@ with tabs[4]:
 
     if st.session_state.od_result is not None:
         st.markdown("##### Matriz O-D")
+        # matriz O-D - usa format() simples (background_gradient requer matplotlib)
         st.dataframe(
-            st.session_state.od_result.style.background_gradient(cmap="PuRd", axis=None),
+            st.session_state.od_result.style.format("{:.3f}"),
             use_container_width=True,
         )
 
