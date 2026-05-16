@@ -560,14 +560,17 @@ def _step_municipio() -> None:
             else:
                 info["nome"], info["uf"] = new_nome, new_uf
                 info["center_lat"], info["center_lon"] = coords
+                info["display"] = f"{new_nome} - {new_uf}" if new_uf else new_nome
                 st.session_state.map_center = coords
-                st.session_state.municipio_nome = f"{new_nome} - {new_uf}" if new_uf else new_nome
-                st.success(f"✅ Localizado em lat={coords[0]:.5f}, lon={coords[1]:.5f}")
+                st.success(
+                    f"✅ Localizado em lat={coords[0]:.5f}, lon={coords[1]:.5f}. "
+                    "Va na **sidebar** e atualize o campo 'Nome do municipio' para refletir aqui se desejar."
+                )
                 st.rerun()
-    # sincroniza nome editado no formulario
+    # sincroniza nome editado no formulario (so no dict, sem tocar nas chaves de widgets)
     if new_nome != info.get("nome") or new_uf != info.get("uf"):
         info["nome"], info["uf"] = new_nome, new_uf
-        st.session_state.municipio_nome = f"{new_nome} - {new_uf}" if new_uf else new_nome
+        info["display"] = f"{new_nome} - {new_uf}" if new_uf else new_nome
 
     st.markdown("**Resumo atual:**")
     st.json({
@@ -909,7 +912,11 @@ with tabs[0]:
 def build_main_map() -> folium.Map:
     center = st.session_state.get("map_center", MATIAS_BARBOSA_CENTER)
     zoom = st.session_state.get("map_zoom", DEFAULT_ZOOM)
-    label = st.session_state.get("municipio_nome") or "Area de Estudo"
+    label = (
+        st.session_state.get("municipio_nome")
+        or st.session_state.get("municipio_info", {}).get("display")
+        or "Area de Estudo"
+    )
     m = map_utils.create_base_map(center=center, zoom=zoom, label=label)
 
     layers = st.session_state.layers
@@ -1375,8 +1382,13 @@ with tabs[7]:
 
     best = scen.best_scenario(df_compare) if not df_compare.empty else None
 
+    area_nome_report = (
+        st.session_state.get("municipio_nome")
+        or st.session_state.get("municipio_info", {}).get("display")
+        or "Area de Estudo"
+    )
     md = report_generator.build_markdown_report(
-        area_nome=st.session_state.municipio_nome,
+        area_nome=area_nome_report,
         zonas_df=st.session_state.zonas_df,
         pontos_df=st.session_state.user_points,
         od_matrix=od if od is not None else pd.DataFrame(),
