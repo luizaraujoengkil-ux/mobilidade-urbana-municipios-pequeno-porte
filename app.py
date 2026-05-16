@@ -76,7 +76,8 @@ st.markdown(
         .kpi-title {font-size: 0.85rem; color: #555; margin-bottom: 4px;}
         .kpi-value {font-size: 1.6rem; font-weight: 700; color: #4A148C;}
         .legend-dot {display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: middle;}
-        .disclaimer {background: #FFF8E1; border-left: 4px solid #F9A825; padding: 10px 14px; border-radius: 6px; font-size: 0.85rem;}
+        .disclaimer {background: #FFF8E1; color: #5D4037; border-left: 4px solid #F9A825; padding: 10px 14px; border-radius: 6px; font-size: 0.85rem; line-height: 1.45;}
+        .disclaimer * {color: #5D4037 !important;}
         .stTabs [data-baseweb="tab"] {font-weight: 600;}
     </style>
     """,
