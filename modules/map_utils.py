@@ -76,7 +76,8 @@ def add_zonas(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True) -> None:
     fg = folium.FeatureGroup(name="Zonas Analiticas", show=show)
     for _, row in gdf.iterrows():
         zona = str(row.get("zona", "")).upper()
-        color = COLORS.get(zona, "#7F7F7F")
+        # cor: prioridade 1) coluna 'cor' (definida no assistente) 2) palette por codigo de zona
+        color = row.get("cor") if "cor" in gdf.columns and row.get("cor") else COLORS.get(zona, "#7F7F7F")
         tooltip = f"<b>{row.get('zona','')}</b> - {row.get('nome','')}"
         popup_html = "<br>".join(
             [f"<b>{c}:</b> {row[c]}" for c in gdf.columns if c not in ("geometry",)]

@@ -19,9 +19,12 @@ from streamlit_folium import st_folium
 
 from modules import (
     data_loader,
+    drawing as drawing_utils,
+    geocode,
     map_utils,
     network_analysis as net,
     od_matrix,
+    osm_pois,
     report_generator,
     scenario_analysis as scen,
 )
@@ -30,9 +33,17 @@ from modules.config import (
     COLORS,
     DEFAULT_ZOOM,
     DISCLAIMER,
+    EIXO_IMPACTOS,
+    EIXO_TYPES,
     INFRA_CATEGORIES,
     MATIAS_BARBOSA_CENTER,
     POINT_CATEGORIES,
+    POI_IMPORTANCIA,
+    VIA_FUNCOES,
+    VIA_TYPES,
+    ZONA_COLOR_BY_TIPO,
+    ZONA_FUNCAO_OD,
+    ZONA_TIPOS,
     ZONE_TYPES,
 )
 
@@ -74,13 +85,111 @@ st.markdown(
 
 
 # ---------------------------------------------------------------------------
+# TELA INICIAL - ESCOLHA DO MODO DE ESTUDO
+# ---------------------------------------------------------------------------
+def show_welcome_screen() -> None:
+    """Pagina de boas-vindas - apresenta a escolha demo vs novo estudo.
+
+    Chamada antes da inicializacao do app quando 'study_mode' ainda nao
+    esta definido em session_state.
+    """
+    st.markdown(
+        """
+        <div style="text-align:center;padding:60px 20px 30px 20px;">
+            <div style="font-size:4rem;">🗺️</div>
+            <h1 style="color:#4A148C;margin-bottom:8px;">
+                Simulador de Mobilidade Urbana<br>para Municipios de Pequeno Porte
+            </h1>
+            <p style="font-size:1.1rem;color:#555;max-width:760px;margin:8px auto 30px auto;">
+                Ferramenta experimental para analise de areas de estudo, matriz origem-destino
+                simplificada e simulacao de intervencoes viarias (viadutos, pontes, novas ligacoes).
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(
+            """
+            <div style="background:linear-gradient(135deg,#F3E5F5 0%,#FFFFFF 100%);
+                        border-left:5px solid #B83DBA;padding:20px;border-radius:10px;
+                        box-shadow:0 1px 4px rgba(0,0,0,0.06);min-height:200px;">
+                <h3 style="color:#4A148C;margin-top:0;">🎓 Abrir demonstracao</h3>
+                <p><b>Matias Barbosa / MG</b></p>
+                <p style="font-size:0.9rem;color:#555;">
+                    Estudo de caso pre-carregado com zonas Z1-Z4, linha ferrea, BR-040,
+                    MG-353, Uniao Industria e pontos de viaduto. Tudo editavel.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("🎓 Abrir demonstracao: Matias Barbosa/MG",
+                     use_container_width=True, type="primary", key="btn_mode_demo"):
+            st.session_state.study_mode = "demo"
+            st.rerun()
+    with c2:
+        st.markdown(
+            """
+            <div style="background:linear-gradient(135deg,#E8F5E9 0%,#FFFFFF 100%);
+                        border-left:5px solid #43A047;padding:20px;border-radius:10px;
+                        box-shadow:0 1px 4px rgba(0,0,0,0.06);min-height:200px;">
+                <h3 style="color:#1B5E20;margin-top:0;">🌍 Criar novo estudo</h3>
+                <p><b>Outro municipio</b></p>
+                <p style="font-size:0.9rem;color:#555;">
+                    Assistente passo a passo: municipio, area de estudo, vias, eixos
+                    estruturantes, zonas analiticas e pontos de interesse.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("🌍 Criar novo estudo",
+                     use_container_width=True, key="btn_mode_new"):
+            st.session_state.study_mode = "new"
+            st.rerun()
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.info(
+        "ℹ️ A escolha aqui apenas determina os dados iniciais. Em ambos os modos voce "
+        "pode editar, importar arquivos KMZ/KML/GeoJSON, cadastrar pontos, ajustar "
+        "zonas, simular intervencoes e gerar relatorios."
+    )
+
+
+# Gate: se ainda nao escolheu, mostra a tela inicial e para
+if "study_mode" not in st.session_state:
+    show_welcome_screen()
+    st.stop()
+
+
+# ---------------------------------------------------------------------------
 # ESTADO DA SESSAO
 # ---------------------------------------------------------------------------
+def _empty_layers() -> dict:
+    """Camadas vazias - usado no modo 'Criar novo estudo'."""
+    empty_pt = gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+    return {
+        "area_estudo": empty_pt.copy(),
+        "zonas": empty_pt.copy(),
+        "ferrovia": empty_pt.copy(),
+        "rodovias": empty_pt.copy(),
+        "pontos_viaduto": empty_pt.copy(),
+        "pontos_interesse": empty_pt.copy(),
+    }
+
+
 def init_session_state() -> None:
     if "initialized" in st.session_state:
         return
 
-    layers = data_loader.load_sample_layers()
+    mode = st.session_state.get("study_mode", "demo")
+    if mode == "demo":
+        layers = data_loader.load_sample_layers()
+    else:
+        layers = _empty_layers()
+
     st.session_state.layers = layers
     st.session_state.uploaded_layers = {}  # nome -> gdf
 
@@ -97,6 +206,20 @@ def init_session_state() -> None:
         scen.Scenario(nome="Cenario Atual", tipo="Cenario atual",
                       descricao="Estado atual sem intervencoes adicionais")
     ]
+
+    # Dados do municipio (preenchidos no Assistente)
+    if mode == "demo":
+        st.session_state.municipio_info = {
+            "nome": "Matias Barbosa", "uf": "MG",
+            "center_lat": MATIAS_BARBOSA_CENTER[0],
+            "center_lon": MATIAS_BARBOSA_CENTER[1],
+        }
+    else:
+        st.session_state.municipio_info = {
+            "nome": "", "uf": "",
+            "center_lat": MATIAS_BARBOSA_CENTER[0],
+            "center_lon": MATIAS_BARBOSA_CENTER[1],
+        }
 
     # Camadas ativas (toggles)
     st.session_state.show_layers = {
@@ -191,6 +314,14 @@ st.divider()
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ Painel de Controle")
+
+    mode_label = "🎓 Demonstracao" if st.session_state.study_mode == "demo" else "🌍 Novo estudo"
+    st.caption(f"Modo atual: **{mode_label}**")
+    if st.button("🔄 Voltar a tela inicial / Resetar", use_container_width=True, key="btn_reset_app"):
+        # limpa estado para a tela de escolha re-aparecer
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.rerun()
 
     st.subheader("🎯 Modo de estudo")
     modo = st.radio(
@@ -344,6 +475,7 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 tabs = st.tabs(
     [
+        "🧭 Assistente",
         "🗺️ Mapa",
         "📥 Importar Arquivos",
         "📍 Pontos / Edicao",
@@ -353,6 +485,422 @@ tabs = st.tabs(
         "📑 Relatorio",
     ]
 )
+
+
+# ===========================================================================
+# ABA 0 - ASSISTENTE (fluxo guiado de criacao do estudo)
+# ===========================================================================
+WIZARD_STEPS = [
+    "1. Municipio",
+    "2. Area de estudo",
+    "3. Via principal",
+    "4. Linha ferrea / eixo estruturante",
+    "5. Zonas analiticas",
+    "6. Pontos de interesse",
+]
+
+
+def _wizard_mini_map(geom_type: str, height: int = 380) -> dict:
+    """Constroi um mini-mapa para desenho dentro de uma etapa do assistente.
+
+    geom_type: 'polygon' ou 'polyline' ou 'marker'.
+    Retorna o state dict de st_folium (com 'all_drawings' para extracao).
+    """
+    center = st.session_state.get("map_center", MATIAS_BARBOSA_CENTER)
+    zoom = st.session_state.get("map_zoom", DEFAULT_ZOOM)
+    m = map_utils.create_base_map(center=center, zoom=zoom,
+                                   label=st.session_state.get("municipio_nome", "Area"))
+    # mostra camadas ja salvas como referencia
+    layers = st.session_state.layers
+    if not layers.get("area_estudo", gpd.GeoDataFrame()).empty:
+        map_utils.add_area_estudo(m, layers["area_estudo"])
+    if not layers.get("zonas", gpd.GeoDataFrame()).empty:
+        map_utils.add_zonas(m, layers["zonas"])
+    if not layers.get("rodovias", gpd.GeoDataFrame()).empty:
+        map_utils.add_rodovias(m, layers["rodovias"])
+    if not layers.get("ferrovia", gpd.GeoDataFrame()).empty:
+        map_utils.add_ferrovia(m, layers["ferrovia"])
+    if st.session_state.osm_edges is not None:
+        map_utils.add_osm_network(m, st.session_state.osm_edges)
+
+    from folium.plugins import Draw
+    draw_options = {
+        "polyline":     geom_type == "polyline",
+        "polygon":      geom_type == "polygon",
+        "circle":       False,
+        "rectangle":    False,
+        "marker":       geom_type == "marker",
+        "circlemarker": False,
+    }
+    Draw(
+        export=False, position="topleft",
+        draw_options=draw_options,
+        edit_options={"edit": True, "remove": True},
+    ).add_to(m)
+    map_utils.add_layer_control(m)
+    return st_folium(m, height=height, use_container_width=True,
+                     returned_objects=["all_drawings"])
+
+
+def _step_municipio() -> None:
+    info = st.session_state.municipio_info
+    st.markdown("### 1️⃣ Municipio")
+    st.caption("Informe o municipio em estudo. Use o botao 'Localizar no mapa' para centralizar.")
+    col1, col2, col3 = st.columns([3, 1, 2])
+    with col1:
+        new_nome = st.text_input("Nome do municipio", value=info.get("nome", ""), key="wiz_nome")
+    with col2:
+        new_uf = st.text_input("UF", value=info.get("uf", ""), max_chars=2, key="wiz_uf")
+    with col3:
+        if st.button("📍 Localizar no mapa (geocodificar)", use_container_width=True, key="wiz_geocode"):
+            with st.spinner("Buscando coordenadas..."):
+                coords = geocode.geocode_municipio(new_nome, new_uf)
+            if coords is None:
+                st.error("Nao foi possivel localizar o municipio. Tente revisar nome/UF.")
+            else:
+                info["nome"], info["uf"] = new_nome, new_uf
+                info["center_lat"], info["center_lon"] = coords
+                st.session_state.map_center = coords
+                st.session_state.municipio_nome = f"{new_nome} - {new_uf}" if new_uf else new_nome
+                st.success(f"✅ Localizado em lat={coords[0]:.5f}, lon={coords[1]:.5f}")
+                st.rerun()
+    # sincroniza nome editado no formulario
+    if new_nome != info.get("nome") or new_uf != info.get("uf"):
+        info["nome"], info["uf"] = new_nome, new_uf
+        st.session_state.municipio_nome = f"{new_nome} - {new_uf}" if new_uf else new_nome
+
+    st.markdown("**Resumo atual:**")
+    st.json({
+        "municipio": info.get("nome", ""),
+        "UF": info.get("uf", ""),
+        "centro do mapa": [info.get("center_lat"), info.get("center_lon")],
+    })
+
+
+def _step_area_estudo() -> None:
+    st.markdown("### 2️⃣ Delimitacao da Area de Estudo")
+    st.caption(
+        "Desenhe o poligono da area de estudo no mapa abaixo (ferramenta de poligono "
+        "no canto superior esquerdo do mapa) **ou** importe um arquivo na aba 📥 Importar."
+    )
+    state = _wizard_mini_map("polygon")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("💾 Salvar area desenhada", use_container_width=True, key="save_area"):
+            drawn = drawing_utils.extract_drawings(state, allowed_types={"Polygon", "MultiPolygon"})
+            if drawn.empty:
+                st.warning("Nenhum poligono detectado. Desenhe primeiro no mapa.")
+            else:
+                drawn["nome"] = "Area de Estudo"
+                drawn["descricao"] = "Area delimitada para analise de mobilidade"
+                st.session_state.layers["area_estudo"] = drawn
+                st.success(f"✅ Area salva ({len(drawn)} poligono(s)).")
+                st.rerun()
+    with col2:
+        if st.button("🗑️ Limpar area", use_container_width=True, key="clear_area"):
+            st.session_state.layers["area_estudo"] = gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+            st.rerun()
+
+    cur = st.session_state.layers.get("area_estudo")
+    if cur is not None and not cur.empty:
+        st.success(f"📐 Area de estudo cadastrada com {len(cur)} feicao(oes).")
+    else:
+        st.info("Nenhuma area de estudo definida ainda.")
+
+
+def _step_via_principal() -> None:
+    st.markdown("### 3️⃣ Definicao da Via Principal")
+    st.caption("Desenhe a polilinha da via principal e classifique-a abaixo.")
+    state = _wizard_mini_map("polyline")
+
+    with st.form("form_via", clear_on_submit=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            via_nome = st.text_input("Nome da via", value="", key="via_nome")
+            via_tipo = st.selectbox("Tipo", VIA_TYPES, key="via_tipo")
+        with col2:
+            via_funcao = st.selectbox("Funcao predominante", VIA_FUNCOES, key="via_funcao")
+            via_obs = st.text_input("Observacoes", value="", key="via_obs")
+        submit_via = st.form_submit_button("➕ Adicionar via desenhada", use_container_width=True)
+
+    if submit_via:
+        drawn = drawing_utils.extract_drawings(state, allowed_types={"LineString", "MultiLineString"})
+        if drawn.empty:
+            st.warning("Nenhuma linha detectada. Desenhe primeiro no mapa.")
+        else:
+            drawn["nome"] = via_nome or "Via principal"
+            drawn["tipo"] = via_tipo
+            drawn["categoria"] = via_tipo.lower().replace(" ", "_")
+            drawn["funcao"] = via_funcao
+            drawn["observacoes"] = via_obs
+            cur = st.session_state.layers.get("rodovias")
+            if cur is None or cur.empty:
+                st.session_state.layers["rodovias"] = drawn
+            else:
+                st.session_state.layers["rodovias"] = gpd.GeoDataFrame(
+                    pd.concat([cur, drawn], ignore_index=True), crs="EPSG:4326"
+                )
+            st.success(f"✅ Via '{via_nome or 'Via principal'}' adicionada.")
+            st.rerun()
+
+    cur = st.session_state.layers.get("rodovias")
+    if cur is not None and not cur.empty:
+        cols_show = [c for c in ["nome", "tipo", "funcao", "observacoes"] if c in cur.columns]
+        st.markdown("**Vias cadastradas:**")
+        st.dataframe(cur[cols_show] if cols_show else cur.drop(columns=["geometry"], errors="ignore"),
+                     use_container_width=True)
+        if st.button("🗑️ Apagar todas as vias", key="clear_vias"):
+            st.session_state.layers["rodovias"] = gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+            st.rerun()
+
+
+def _step_eixo_estruturante() -> None:
+    st.markdown("### 4️⃣ Linha Ferrea ou Eixo Estruturante")
+    st.caption(
+        "Desenhe a polilinha que representa o eixo estruturante "
+        "(ferrovia, rodovia urbana, BRT, rio/canal, etc.) e classifique-o."
+    )
+    state = _wizard_mini_map("polyline")
+
+    with st.form("form_eixo", clear_on_submit=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            eixo_nome = st.text_input("Nome do eixo", value="", key="eixo_nome")
+            eixo_tipo = st.selectbox("Tipo", EIXO_TYPES, key="eixo_tipo")
+        with col2:
+            eixo_imp = st.selectbox("Impacto predominante", EIXO_IMPACTOS, key="eixo_imp")
+            eixo_obs = st.text_input("Observacoes", value="", key="eixo_obs")
+        submit_eixo = st.form_submit_button("➕ Adicionar eixo desenhado", use_container_width=True)
+
+    if submit_eixo:
+        drawn = drawing_utils.extract_drawings(state, allowed_types={"LineString", "MultiLineString"})
+        if drawn.empty:
+            st.warning("Nenhuma linha detectada.")
+        else:
+            drawn["nome"] = eixo_nome or "Eixo estruturante"
+            drawn["tipo"] = eixo_tipo
+            drawn["impacto"] = eixo_imp
+            drawn["observacoes"] = eixo_obs
+            cur = st.session_state.layers.get("ferrovia")
+            if cur is None or cur.empty:
+                st.session_state.layers["ferrovia"] = drawn
+            else:
+                st.session_state.layers["ferrovia"] = gpd.GeoDataFrame(
+                    pd.concat([cur, drawn], ignore_index=True), crs="EPSG:4326"
+                )
+            st.success(f"✅ Eixo '{eixo_nome or 'Eixo estruturante'}' adicionado.")
+            st.rerun()
+
+    cur = st.session_state.layers.get("ferrovia")
+    if cur is not None and not cur.empty:
+        cols_show = [c for c in ["nome", "tipo", "impacto", "observacoes"] if c in cur.columns]
+        st.markdown("**Eixos cadastrados:**")
+        st.dataframe(cur[cols_show] if cols_show else cur.drop(columns=["geometry"], errors="ignore"),
+                     use_container_width=True)
+        if st.button("🗑️ Apagar todos os eixos", key="clear_eixos"):
+            st.session_state.layers["ferrovia"] = gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+            st.rerun()
+
+
+def _step_zonas() -> None:
+    st.markdown("### 5️⃣ Zonas Analiticas")
+    st.caption(
+        "Desenhe o poligono da zona, preencha os dados e clique em 'Adicionar zona'. "
+        "Codigos sugeridos: Z1, Z2, Z3, Z4..."
+    )
+    state = _wizard_mini_map("polygon")
+
+    with st.form("form_zona", clear_on_submit=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            z_cod = st.text_input("Codigo (Z1...)", value="Z1", key="z_cod")
+            z_nome = st.text_input("Nome", value="", key="z_nome")
+        with col2:
+            z_tipo = st.selectbox("Tipo predominante", ZONA_TIPOS, key="z_tipo")
+            z_funcao = st.selectbox("Funcao na O-D", ZONA_FUNCAO_OD, key="z_funcao")
+        with col3:
+            z_ger = st.number_input("Peso geracao", 0.0, 1000.0, 50.0, 5.0, key="z_ger")
+            z_atr = st.number_input("Peso atracao", 0.0, 1000.0, 50.0, 5.0, key="z_atr")
+        col4, col5, col6 = st.columns(3)
+        with col4:
+            z_pop = st.number_input("Populacao estimada", 0, 1_000_000, 0, 100, key="z_pop")
+        with col5:
+            z_emp = st.number_input("Empregos/atividades", 0, 1_000_000, 0, 50, key="z_emp")
+        with col6:
+            z_cor = st.color_picker("Cor", value=ZONA_COLOR_BY_TIPO.get(z_tipo, "#9E9E9E"), key="z_cor")
+        z_obs = st.text_input("Observacoes", "", key="z_obs")
+        submit_zona = st.form_submit_button("➕ Adicionar zona desenhada", use_container_width=True)
+
+    if submit_zona:
+        drawn = drawing_utils.extract_drawings(state, allowed_types={"Polygon", "MultiPolygon"})
+        if drawn.empty:
+            st.warning("Nenhum poligono detectado.")
+        else:
+            drawn["zona"] = z_cod
+            drawn["nome"] = z_nome or z_cod
+            drawn["tipo"] = z_tipo
+            drawn["funcao_od"] = z_funcao
+            drawn["geracao"] = z_ger
+            drawn["atracao"] = z_atr
+            drawn["populacao"] = z_pop
+            drawn["empregos"] = z_emp
+            drawn["cor"] = z_cor
+            drawn["observacoes"] = z_obs
+            cur = st.session_state.layers.get("zonas")
+            if cur is None or cur.empty:
+                st.session_state.layers["zonas"] = drawn
+            else:
+                st.session_state.layers["zonas"] = gpd.GeoDataFrame(
+                    pd.concat([cur, drawn], ignore_index=True), crs="EPSG:4326"
+                )
+            # atualiza tabela de zonas para a matriz O-D
+            st.session_state.zonas_df = od_matrix.default_zonas_dataframe(st.session_state.layers["zonas"])
+            st.success(f"✅ Zona '{z_cod}' adicionada.")
+            st.rerun()
+
+    cur = st.session_state.layers.get("zonas")
+    if cur is not None and not cur.empty:
+        cols_show = [c for c in ["zona", "nome", "tipo", "geracao", "atracao", "populacao"] if c in cur.columns]
+        st.markdown("**Zonas cadastradas:**")
+        st.dataframe(cur[cols_show] if cols_show else cur.drop(columns=["geometry"], errors="ignore"),
+                     use_container_width=True)
+        if st.button("🗑️ Apagar todas as zonas", key="clear_zonas"):
+            st.session_state.layers["zonas"] = gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+            st.session_state.zonas_df = od_matrix.default_zonas_dataframe(None)
+            st.rerun()
+
+
+def _step_pois() -> None:
+    st.markdown("### 6️⃣ Pontos de Interesse e Pontos Criticos")
+    st.caption(
+        "Cadastre pontos manualmente OU busque automaticamente no OpenStreetMap "
+        "(escolas, hospitais, prefeitura, comercios, industrias, estacoes, paradas, passagens de nivel...)."
+    )
+
+    st.markdown("##### 🔍 Busca automatica no OSM")
+    st.info(
+        "ℹ️ **Os pontos sugeridos sao obtidos de bases abertas (OpenStreetMap) e podem estar "
+        "incompletos ou desatualizados. Recomenda-se validacao local.**"
+    )
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown(
+            "A busca usa o **poligono da Area de Estudo** definida na etapa 2. "
+            "Se a area nao estiver desenhada, defina-a antes."
+        )
+    with col2:
+        if st.button("🔍 Buscar POIs do OSM", use_container_width=True, key="btn_fetch_pois"):
+            area_gdf = st.session_state.layers.get("area_estudo")
+            if area_gdf is None or area_gdf.empty:
+                st.error("Defina a area de estudo na etapa 2 antes de buscar POIs.")
+            else:
+                try:
+                    polygon = area_gdf.geometry.iloc[0]
+                except Exception:
+                    polygon = None
+                if polygon is None or polygon.is_empty:
+                    st.error("Poligono da area de estudo invalido.")
+                else:
+                    with st.spinner("Consultando OpenStreetMap..."):
+                        pois = osm_pois.fetch_pois_in_polygon(polygon)
+                    if pois is None or pois.empty:
+                        st.warning("Nenhum POI encontrado ou OSMnx indisponivel.")
+                    else:
+                        # mescla com pontos do usuario
+                        new_rows = pois[["nome", "categoria", "latitude", "longitude", "descricao"]].copy()
+                        st.session_state.user_points = pd.concat(
+                            [st.session_state.user_points, new_rows], ignore_index=True
+                        ).drop_duplicates(subset=["nome", "latitude", "longitude"])
+                        st.success(f"✅ {len(new_rows)} POIs sugeridos adicionados a tabela. "
+                                   f"Valide e edite na tabela abaixo ou na aba 📍 Pontos / Edicao.")
+                        st.rerun()
+
+    st.divider()
+    st.markdown("##### 📋 POIs cadastrados (sugeridos + manuais)")
+    if st.session_state.user_points.empty:
+        st.info("Nenhum POI cadastrado. Use o botao acima ou cadastre manualmente na aba 📍 Pontos / Edicao.")
+    else:
+        edited = st.data_editor(
+            st.session_state.user_points,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="wiz_poi_editor",
+        )
+        if not edited.equals(st.session_state.user_points):
+            st.session_state.user_points = edited
+        c1, c2 = st.columns(2)
+        with c1:
+            csv = st.session_state.user_points.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Baixar POIs como CSV", csv,
+                               file_name="pois.csv", mime="text/csv",
+                               use_container_width=True, key="wiz_dl_pois")
+        with c2:
+            if st.button("🗑️ Limpar todos os POIs", use_container_width=True, key="wiz_clear_pois"):
+                st.session_state.user_points = pd.DataFrame(
+                    columns=["nome", "categoria", "latitude", "longitude", "descricao"]
+                )
+                st.rerun()
+
+
+# Renderizacao da aba Assistente
+with tabs[0]:
+    st.subheader("🧭 Assistente de Configuracao do Estudo")
+    st.markdown(
+        f"**Modo:** {'🎓 Demonstracao - Matias Barbosa/MG' if st.session_state.study_mode == 'demo' else '🌍 Novo estudo'}  \n"
+        "Use as etapas abaixo para construir (ou ajustar) seu estudo de mobilidade. "
+        "Mesmo no modo demonstracao, voce pode editar/redesenhar tudo."
+    )
+
+    if st.session_state.study_mode == "demo":
+        st.info(
+            "📚 *Dados demonstrativos elaborados para fins academicos, com base em "
+            "zoneamento analitico e areas validadas preliminarmente pelos autores.*"
+        )
+
+    # Step state
+    if "wizard_step_idx" not in st.session_state:
+        st.session_state.wizard_step_idx = 0
+
+    # Barra de etapas
+    cur_idx = st.session_state.wizard_step_idx
+    st.markdown(f"**Etapa atual:** {cur_idx + 1} de {len(WIZARD_STEPS)} - **{WIZARD_STEPS[cur_idx]}**")
+    st.progress((cur_idx + 1) / len(WIZARD_STEPS))
+
+    # Botoes de navegacao
+    cnav1, cnav2, cnav3, cnav4 = st.columns([1, 1, 1, 3])
+    with cnav1:
+        if st.button("⬅️ Voltar", use_container_width=True, disabled=cur_idx == 0, key="wiz_back"):
+            st.session_state.wizard_step_idx = max(0, cur_idx - 1)
+            st.rerun()
+    with cnav2:
+        if st.button("Proximo ➡️", use_container_width=True,
+                     disabled=cur_idx == len(WIZARD_STEPS) - 1, key="wiz_next"):
+            st.session_state.wizard_step_idx = min(len(WIZARD_STEPS) - 1, cur_idx + 1)
+            st.rerun()
+    with cnav3:
+        if st.button("⏭️ Pular", use_container_width=True, key="wiz_skip"):
+            st.session_state.wizard_step_idx = min(len(WIZARD_STEPS) - 1, cur_idx + 1)
+            st.rerun()
+    with cnav4:
+        sel = st.selectbox("Ir para etapa:", list(range(len(WIZARD_STEPS))),
+                           index=cur_idx, format_func=lambda i: WIZARD_STEPS[i],
+                           label_visibility="collapsed", key="wiz_jump")
+        if sel != cur_idx:
+            st.session_state.wizard_step_idx = sel
+            st.rerun()
+
+    st.divider()
+
+    # Renderiza a etapa
+    step_renderers = [_step_municipio, _step_area_estudo, _step_via_principal,
+                      _step_eixo_estruturante, _step_zonas, _step_pois]
+    step_renderers[cur_idx]()
+
+    st.divider()
+    st.caption(
+        "💡 Apos completar as etapas, va nas abas **🔢 Matriz O-D**, **🛠️ Cenarios** e "
+        "**📑 Relatorio** para gerar a analise."
+    )
 
 
 # ===========================================================================
@@ -410,7 +958,7 @@ def build_main_map() -> folium.Map:
     return m
 
 
-with tabs[0]:
+with tabs[1]:
     st.subheader("🗺️ Mapa Interativo")
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -448,7 +996,7 @@ with tabs[0]:
 # ===========================================================================
 # ABA 2 - IMPORTAR
 # ===========================================================================
-with tabs[1]:
+with tabs[2]:
     st.subheader("📥 Importar arquivos geograficos")
     st.markdown(
         "Formatos suportados: **GeoJSON**, **KML**, **KMZ**, **CSV** com colunas "
@@ -492,7 +1040,7 @@ with tabs[1]:
 # ===========================================================================
 # ABA 3 - PONTOS / EDICAO
 # ===========================================================================
-with tabs[2]:
+with tabs[3]:
     st.subheader("📍 Cadastro de pontos de interesse")
     st.caption("Pontos cadastrados aqui ficam disponiveis durante a sessao e aparecem no mapa.")
 
@@ -571,7 +1119,7 @@ with tabs[2]:
 # ===========================================================================
 # ABA 4 - MATRIZ O-D
 # ===========================================================================
-with tabs[3]:
+with tabs[4]:
     st.subheader("🔢 Matriz Origem-Destino simplificada (modelo gravitacional)")
     st.markdown(
         "Edite os pesos de **geracao** e **atracao** de cada zona. "
@@ -657,7 +1205,7 @@ def get_or_build_base_graph(force: bool = False):
     return st.session_state.base_graph
 
 
-with tabs[4]:
+with tabs[5]:
     st.subheader("🛠️ Simulacao de cenarios de intervencao")
     st.caption(
         "Crie cenarios com novas ligacoes viarias, viadutos, pontes ou bloqueios. "
@@ -759,7 +1307,7 @@ with tabs[4]:
 # ===========================================================================
 # ABA 6 - COMPARACAO
 # ===========================================================================
-with tabs[5]:
+with tabs[6]:
     st.subheader("📊 Comparacao de cenarios")
 
     G = get_or_build_base_graph()
@@ -805,7 +1353,7 @@ with tabs[5]:
 # ===========================================================================
 # ABA 7 - RELATORIO
 # ===========================================================================
-with tabs[6]:
+with tabs[7]:
     st.subheader("📑 Relatorio do estudo")
     st.caption("Resumo automatico com area de estudo, zonas, pontos, matriz O-D e comparacao de cenarios.")
 

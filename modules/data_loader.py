@@ -13,7 +13,9 @@ from shapely.geometry import Point
 from . import kmz_utils
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-SAMPLE_DIR = DATA_DIR / "sample"
+DEMO_DIR = DATA_DIR / "demo_matias_barbosa"
+# alias antigo (compat)
+SAMPLE_DIR = DEMO_DIR
 UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -31,12 +33,12 @@ def _safe_read(path: Path) -> Optional[gpd.GeoDataFrame]:
 def load_sample_layers() -> dict:
     """Carrega todas as camadas de exemplo de Matias Barbosa."""
     layers = {
-        "area_estudo": _safe_read(SAMPLE_DIR / "area_estudo.geojson"),
-        "zonas": _safe_read(SAMPLE_DIR / "zonas.geojson"),
-        "ferrovia": _safe_read(SAMPLE_DIR / "ferrovia.geojson"),
-        "rodovias": _safe_read(SAMPLE_DIR / "rodovias.geojson"),
-        "pontos_viaduto": _safe_read(SAMPLE_DIR / "pontos_viaduto.geojson"),
-        "pontos_interesse": _safe_read(SAMPLE_DIR / "pontos_interesse.geojson"),
+        "area_estudo": _safe_read(DEMO_DIR / "area_estudo.geojson"),
+        "zonas": _safe_read(DEMO_DIR / "zonas.geojson"),
+        "ferrovia": _safe_read(DEMO_DIR / "ferrovia.geojson"),
+        "rodovias": _safe_read(DEMO_DIR / "rodovias.geojson"),
+        "pontos_viaduto": _safe_read(DEMO_DIR / "pontos_viaduto.geojson"),
+        "pontos_interesse": _safe_read(DEMO_DIR / "pontos_interesse.geojson"),
     }
     return layers
 

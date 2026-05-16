@@ -30,9 +30,10 @@ estudos em outras localidades.
 .
 ├── app.py                       # aplicacao principal Streamlit
 ├── requirements.txt
+├── packages.txt                 # libs nativas para Streamlit Cloud
 ├── README.md
 ├── data/
-│   ├── sample/                  # dados iniciais sinteticos
+│   ├── demo_matias_barbosa/     # dados iniciais do estudo demonstrativo
 │   │   ├── area_estudo.geojson
 │   │   ├── zonas.geojson
 │   │   ├── ferrovia.geojson
@@ -40,15 +41,20 @@ estudos em outras localidades.
 │   │   ├── pontos_viaduto.geojson
 │   │   └── pontos_interesse.geojson
 │   └── uploads/                 # arquivos enviados pelo usuario na sessao
+├── exports/                     # arquivos gerados/exportados
 └── modules/
-    ├── config.py                # cores, constantes, listas
+    ├── config.py                # cores, constantes, listas (tipos de via,
+    │                            # zona, POI, paleta por categoria)
     ├── data_loader.py           # leitura de arquivos
+    ├── drawing.py               # captura de geometrias desenhadas no mapa
+    ├── geocode.py               # geocodificacao de municipios (OSMnx/Nominatim)
     ├── kmz_utils.py             # leitura de KML/KMZ
     ├── map_utils.py             # construcao do mapa Folium
+    ├── network_analysis.py      # grafo viario + OSMnx + cenarios
     ├── od_matrix.py             # modelo gravitacional O-D
-    ├── network_analysis.py      # grafo + OSMnx
-    ├── scenario_analysis.py     # cenarios e indicadores
-    └── report_generator.py      # relatorio .md/.txt/.html
+    ├── osm_pois.py              # busca de POIs no OpenStreetMap
+    ├── report_generator.py      # relatorio .md/.txt/.html
+    └── scenario_analysis.py     # cenarios e indicadores
 ```
 
 ---
@@ -105,7 +111,29 @@ O Streamlit abrira automaticamente o navegador em
 
 ## 🗺️ Funcionalidades
 
-### Aba **Mapa**
+### Tela inicial - escolha do modo
+Ao abrir o app, voce escolhe entre:
+- **🎓 Abrir demonstracao - Matias Barbosa/MG**: dados pre-carregados, tudo editavel
+- **🌍 Criar novo estudo**: assistente passo a passo para outro municipio
+
+A escolha pode ser refeita a qualquer momento pelo botao **🔄 Voltar a tela inicial** na sidebar.
+
+### Aba **🧭 Assistente** (NOVO - fluxo guiado em 6 etapas)
+Reorganiza o cadastro do estudo em etapas sequenciais com navegacao **Voltar / Proximo / Pular** + selector de etapa:
+
+| Etapa | O que faz |
+|---|---|
+| 1. **Municipio** | Nome, UF, **geocodificacao automatica** (OSMnx/Nominatim) para centralizar o mapa |
+| 2. **Area de estudo** | Desenha o poligono **direto no mapa** ou importa via KMZ/KML/GeoJSON |
+| 3. **Via principal** | Desenha polilinha + classifica (BR/MG/avenida/eixo industrial...) com funcao predominante |
+| 4. **Linha ferrea / Eixo estruturante** | Desenha o eixo (ferrovia, BRT, rio, barreira) + classifica impacto |
+| 5. **Zonas analiticas** | Desenha poligono + preenche codigo/nome/tipo/funcao O-D/pesos/populacao/cor |
+| 6. **POIs (Pontos de Interesse)** | Cadastro manual + **busca automatica no OSM** (escolas, hospitais, prefeitura, comercios, industrias, estacoes, paradas, passagens de nivel) |
+
+> Cada etapa tem mini-mapa proprio com ferramentas de desenho (poligono ou polilinha conforme o caso),
+> tabela com o que ja foi salvo, e botao de limpar/redesenhar.
+
+### Aba **🗺️ Mapa**
 - Base **OpenStreetMap**, alternancia para **Satelite (Esri)** e **Mapa Claro**.
 - Zoom inicial em Matias Barbosa / MG.
 - Camadas ativaveis/desativaveis pela barra lateral.

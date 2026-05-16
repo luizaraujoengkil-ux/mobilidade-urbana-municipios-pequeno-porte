@@ -36,12 +36,87 @@ POINT_CATEGORIES = [
     "Passagem em nivel",
     "Travessia critica",
     "Nova ligacao viaria",
+    "Acesso a rodovia",
     "Escola",
+    "Hospital",
+    "Posto de saude",
+    "Prefeitura",
     "Comercio",
     "Industria",
     "Terminal/Parada",
+    "Estacao ferroviaria",
     "Outro",
 ]
+
+# Tipos / funcoes editaveis no assistente
+VIA_TYPES = [
+    "Rodovia federal",
+    "Rodovia estadual",
+    "Avenida urbana",
+    "Estrada municipal",
+    "Eixo historico",
+    "Eixo industrial/logistico",
+    "Outro",
+]
+
+VIA_FUNCOES = [
+    "ligacao regional",
+    "acesso ao centro",
+    "corredor industrial",
+    "ligacao intermunicipal",
+    "travessia urbana",
+    "outro",
+]
+
+EIXO_TYPES = [
+    "Linha ferrea",
+    "Rodovia urbana",
+    "Avenida arterial",
+    "Corredor de transporte coletivo",
+    "Rio/canal",
+    "Barreira fisica",
+    "Outro",
+]
+
+EIXO_IMPACTOS = [
+    "efeito barreira",
+    "conflito viario",
+    "travessia critica",
+    "acessibilidade reduzida",
+    "integracao regional",
+    "outro",
+]
+
+ZONA_TIPOS = [
+    "Centro / nucleo urbano",
+    "Residencial",
+    "Comercial / servicos",
+    "Industrial / logistico",
+    "Rural / periurbano",
+    "Equipamentos publicos",
+    "Misto",
+    "Outro",
+]
+
+ZONA_FUNCAO_OD = [
+    "predominantemente origem",
+    "predominantemente destino",
+    "origem e destino",
+]
+
+# Cores sugeridas por tipo de zona (usuario pode sobrescrever)
+ZONA_COLOR_BY_TIPO = {
+    "Centro / nucleo urbano":     "#B83DBA",   # roxo/magenta
+    "Residencial":                "#F2D544",   # amarelo
+    "Comercial / servicos":       "#64B5F6",   # azul claro
+    "Industrial / logistico":     "#E63946",   # vermelho
+    "Rural / periurbano":         "#43A047",   # verde
+    "Equipamentos publicos":      "#7E57C2",   # roxo claro
+    "Misto":                      "#F4A261",   # laranja
+    "Outro":                      "#9E9E9E",   # cinza
+}
+
+POI_IMPORTANCIA = ["baixa", "media", "alta", "critica"]
 
 # Categorias que representam intervencoes de infraestrutura -
 # pontos com essas categorias viram nos do grafo de analise (selecionaveis em Cenarios)
@@ -71,6 +146,12 @@ CATEGORY_STYLE = {
     "Industria":                 {"color": "darkred",   "icon": "industry",      "marker": "#B71C1C"},
     "Terminal/Parada":           {"color": "orange",    "icon": "bus",           "marker": "#F57C00"},
     "Outro":                     {"color": "gray",      "icon": "info-sign",     "marker": "#757575"},
+    # POIs adicionais
+    "Hospital":                  {"color": "red",       "icon": "plus-sign",     "marker": "#D32F2F"},
+    "Posto de saude":            {"color": "lightred",  "icon": "plus-sign",     "marker": "#EF5350"},
+    "Prefeitura":                {"color": "purple",    "icon": "home",          "marker": "#6A1B9A"},
+    "Estacao ferroviaria":       {"color": "darkblue",  "icon": "train",         "marker": "#283593"},
+    "Acesso a rodovia":          {"color": "cadetblue", "icon": "road",          "marker": "#1565C0"},
 }
 
 DISCLAIMER = (
