@@ -1504,6 +1504,109 @@ with tabs[6]:
                     f"**{best['observacao']}**"
                 )
 
+            # ============================================================
+            # MATRIZES O-D POR CENARIO (par a par)
+            # ============================================================
+            st.divider()
+            st.markdown("### 🔢 Matrizes O-D por cenario (par a par)")
+            st.caption(
+                "Para cada cenario, mostramos a matriz de **distancia entre zonas** "
+                "(km via rede viaria), a matriz de **viagens** (modelo gravitacional) "
+                "e o **delta** comparando com o cenario baseline ponto a ponto."
+            )
+
+            # Computa baseline primeiro
+            zonas_gdf = st.session_state.layers.get("zonas")
+            if zonas_gdf is None or zonas_gdf.empty:
+                st.warning("Cadastre zonas analiticas para ver as matrizes detalhadas.")
+            else:
+                baseline_scen = st.session_state.scenarios[0]  # 'Cenario Atual'
+                G_base_sc = baseline_scen.apply(G)
+                dist_base_net = net.zone_distance_matrix(G_base_sc)
+                dist_base = od_matrix.network_distance_matrix_to_zonas_df(
+                    dist_base_net, st.session_state.zonas_df
+                )
+                if dist_base.empty:
+                    # fallback haversine se a rede nao da resultado util
+                    dist_base = od_matrix.build_distance_matrix(zonas_gdf)
+                od_base = od_matrix.gravity_od(
+                    st.session_state.zonas_df, dist_base, beta=2.0, normalize=True
+                )
+
+                st.markdown("##### 🟢 Baseline (Cenario Atual - sem intervencao)")
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    st.caption("**Distancia entre zonas (km)**")
+                    st.dataframe(dist_base.style.format("{:.3f}"), use_container_width=True)
+                with col_b2:
+                    st.caption("**Viagens estimadas (matriz O-D normalizada %)**")
+                    st.dataframe(od_base.style.format("{:.3f}"), use_container_width=True)
+
+                # Por cenario nao-baseline
+                for s in st.session_state.scenarios[1:]:
+                    with st.expander(f"📊 Cenario: **{s.nome}** ({s.tipo})"):
+                        try:
+                            G_s = s.apply(G)
+                            dist_s_net = net.zone_distance_matrix(G_s)
+                            dist_s = od_matrix.network_distance_matrix_to_zonas_df(
+                                dist_s_net, st.session_state.zonas_df
+                            )
+                            if dist_s.empty:
+                                dist_s = od_matrix.build_distance_matrix(zonas_gdf)
+                            od_s = od_matrix.gravity_od(
+                                st.session_state.zonas_df, dist_s, beta=2.0, normalize=True
+                            )
+                        except Exception as exc:
+                            st.error(f"Erro ao calcular: {exc}")
+                            continue
+
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.caption("**Distancia entre zonas (km)**")
+                            st.dataframe(dist_s.style.format("{:.3f}"), use_container_width=True)
+                        with c2:
+                            st.caption("**Viagens estimadas (matriz O-D %)**")
+                            st.dataframe(od_s.style.format("{:.3f}"), use_container_width=True)
+
+                        # Delta vs baseline (par a par)
+                        common_idx = [i for i in dist_s.index if i in dist_base.index]
+                        common_col = [c for c in dist_s.columns if c in dist_base.columns]
+                        if common_idx and common_col:
+                            ds = dist_s.loc[common_idx, common_col].astype(float)
+                            db = dist_base.loc[common_idx, common_col].astype(float)
+                            delta_dist = (ds - db).round(3)
+                            pct_dist = ((ds - db) / db.replace(0, float("nan")) * 100).round(2)
+
+                            os = od_s.loc[common_idx, common_col].astype(float)
+                            ob = od_base.loc[common_idx, common_col].astype(float)
+                            delta_od = (os - ob).round(3)
+
+                            st.markdown("**🔄 Delta vs baseline:**")
+                            dc1, dc2, dc3 = st.columns(3)
+                            with dc1:
+                                st.caption("Δ Distancia (km, negativo = melhor)")
+                                st.dataframe(delta_dist.style.format("{:+.3f}"),
+                                             use_container_width=True)
+                            with dc2:
+                                st.caption("Δ Distancia (% - reducao se negativo)")
+                                st.dataframe(pct_dist.style.format("{:+.2f}%"),
+                                             use_container_width=True)
+                            with dc3:
+                                st.caption("Δ Viagens (positivo = mais fluxo gerado)")
+                                st.dataframe(delta_od.style.format("{:+.3f}"),
+                                             use_container_width=True)
+
+                            # Pares mais beneficiados
+                            d_unstack = pct_dist.where(pct_dist < 0).stack().sort_values()
+                            if not d_unstack.empty:
+                                top_pairs = d_unstack.head(3)
+                                st.markdown("**📌 Top pares com maior reducao de distancia:**")
+                                for (i, j), pct in top_pairs.items():
+                                    if i == j:
+                                        continue
+                                    st.markdown(f"- **{i} → {j}**: reducao de **{abs(pct):.2f}%** "
+                                               f"({delta_dist.loc[i, j]:+.3f} km)")
+
 
 # ===========================================================================
 # ABA 7 - RELATORIO

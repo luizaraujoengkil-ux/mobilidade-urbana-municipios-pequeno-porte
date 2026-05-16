@@ -122,6 +122,26 @@ def od_flow_records(od: pd.DataFrame, zonas_gdf: gpd.GeoDataFrame, threshold: fl
     return records
 
 
+def network_distance_matrix_to_zonas_df(
+    network_dist: pd.DataFrame,
+    zonas_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Converte a matriz de distancias da rede (com indices 'Z:Z1', ...)
+    para usar codigos sem prefixo ('Z1', ...), filtrando para as zonas
+    do zonas_df.
+    """
+    if network_dist is None or network_dist.empty:
+        return pd.DataFrame()
+    # remove prefixo 'Z:'
+    clean = network_dist.copy()
+    clean.index = [str(i).replace("Z:", "") for i in clean.index]
+    clean.columns = [str(c).replace("Z:", "") for c in clean.columns]
+    zonas = zonas_df["zona"].astype(str).tolist()
+    keep_idx = [z for z in zonas if z in clean.index]
+    keep_col = [z for z in zonas if z in clean.columns]
+    return clean.loc[keep_idx, keep_col]
+
+
 def default_zonas_dataframe(zonas_gdf: gpd.GeoDataFrame) -> pd.DataFrame:
     """Constroi DataFrame editavel a partir do GeoDataFrame de zonas."""
     if zonas_gdf is None or zonas_gdf.empty:

@@ -290,10 +290,23 @@ def shortest_path_matrix(G: nx.Graph) -> pd.DataFrame:
 
 
 def zone_distance_matrix(G: nx.Graph) -> pd.DataFrame:
-    """Filtra a matriz de menor caminho apenas entre nos do tipo zona."""
-    full = shortest_path_matrix(G)
+    """Matriz de menor caminho entre nos de zona, computada eficientemente.
+
+    Faz Dijkstra apenas a partir dos nos de zona (em vez de todos os nos do
+    grafo), o que e essencial quando o grafo contem milhares de nos OSM.
+    """
     zona_nodes = [n for n, d in G.nodes(data=True) if d.get("tipo") == "zona"]
-    return full.loc[zona_nodes, zona_nodes]
+    if not zona_nodes:
+        return pd.DataFrame()
+    df = pd.DataFrame(index=zona_nodes, columns=zona_nodes, dtype=float)
+    for n in zona_nodes:
+        try:
+            lengths = nx.single_source_dijkstra_path_length(G, n, weight="weight")
+        except Exception:
+            lengths = {}
+        for m in zona_nodes:
+            df.loc[n, m] = lengths.get(m, float("inf"))
+    return df
 
 
 def average_zone_distance(G: nx.Graph) -> float:
