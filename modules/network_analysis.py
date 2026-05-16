@@ -95,6 +95,8 @@ def build_analysis_graph(
     zonas_gdf: gpd.GeoDataFrame,
     pontos_viaduto: Optional[gpd.GeoDataFrame] = None,
     osm_graph: Optional[nx.MultiDiGraph] = None,
+    user_points_df: Optional[pd.DataFrame] = None,
+    infra_categories: Optional[set] = None,
 ) -> nx.Graph:
     """Constroi grafo combinando OSM (se disponivel) + nos analiticos.
 
@@ -149,13 +151,45 @@ def build_analysis_graph(
                     G.add_edge(node_id, f"OSM:{osm_id}",
                                weight=dist, length_km=dist, tipo="connector")
 
-    # --- 3. Adiciona pontos de viaduto ---------------------------------
+    # --- 3. Adiciona pontos de viaduto (dataset de demonstracao) -------
     if pontos_viaduto is not None and not pontos_viaduto.empty:
         for idx, row in pontos_viaduto.iterrows():
             node_id = f"V:{row.get('nome', idx)}"
             lat, lon = float(row.geometry.y), float(row.geometry.x)
             G.add_node(node_id, lat=lat, lon=lon, tipo="viaduto",
                        nome=row.get("nome", str(idx)))
+            analysis_nodes.append(node_id)
+            if has_osm:
+                osm_id = find_nearest_osm_node(osm_graph, lat, lon)
+                if osm_id is not None and f"OSM:{osm_id}" in G:
+                    onode = osm_graph.nodes[osm_id]
+                    dist = haversine_km(lat, lon, onode["y"], onode["x"])
+                    G.add_edge(node_id, f"OSM:{osm_id}",
+                               weight=dist, length_km=dist, tipo="connector")
+
+    # --- 3b. Adiciona pontos cadastrados pelo usuario com categoria
+    #        de infraestrutura (viaduto / ponte / passagem / nova ligacao)
+    if user_points_df is not None and not user_points_df.empty:
+        infra = infra_categories if infra_categories is not None else set()
+        for _, row in user_points_df.iterrows():
+            cat = str(row.get("categoria", ""))
+            if infra and cat not in infra:
+                continue
+            try:
+                lat = float(row["latitude"])
+                lon = float(row["longitude"])
+            except Exception:
+                continue
+            nome = str(row.get("nome", "ponto")).strip() or "ponto"
+            node_id = f"U:{nome}"
+            # evita duplicacao se o usuario adicionou pontos com nomes iguais
+            suffix = 1
+            base_id = node_id
+            while node_id in G.nodes:
+                suffix += 1
+                node_id = f"{base_id}#{suffix}"
+            G.add_node(node_id, lat=lat, lon=lon, tipo="usuario",
+                       nome=nome, categoria=cat)
             analysis_nodes.append(node_id)
             if has_osm:
                 osm_id = find_nearest_osm_node(osm_graph, lat, lon)

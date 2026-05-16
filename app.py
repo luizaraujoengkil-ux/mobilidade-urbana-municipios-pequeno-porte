@@ -26,9 +26,11 @@ from modules import (
     scenario_analysis as scen,
 )
 from modules.config import (
+    CATEGORY_STYLE,
     COLORS,
     DEFAULT_ZOOM,
     DISCLAIMER,
+    INFRA_CATEGORIES,
     MATIAS_BARBOSA_CENTER,
     POINT_CATEGORIES,
     ZONE_TYPES,
@@ -323,6 +325,7 @@ with st.sidebar:
             <span class='legend-dot' style='background:{COLORS["uniao_industria"]}'></span> Uniao Industria<br>
             <span class='legend-dot' style='background:{COLORS["br040"]}'></span> BR-040<br>
             <span class='legend-dot' style='background:{COLORS["viaduto_estudo"]}'></span> Estudo de viaduto<br>
+            <span class='legend-dot' style='background:#0D47A1'></span> Malha viaria (OSM) - hierarquia em azul<br>
             <span class='legend-dot' style='background:{COLORS["fluxo"]}'></span> Fluxo O-D
         </div>
         """,
@@ -493,6 +496,30 @@ with tabs[2]:
     st.subheader("📍 Cadastro de pontos de interesse")
     st.caption("Pontos cadastrados aqui ficam disponiveis durante a sessao e aparecem no mapa.")
 
+    st.info(
+        "💡 **Pontos com categorias de infraestrutura** "
+        "(Viaduto proposto, Ponte proposta, Passagem inferior/superior/em nivel, "
+        "Travessia critica, Nova ligacao viaria) **viram automaticamente nos selecionaveis "
+        "na aba 🛠️ Cenarios** &mdash; assim voce pode simular interligacoes a partir deles."
+    )
+
+    with st.expander("📖 O que cada categoria significa"):
+        st.markdown(
+            """
+| Categoria | Significado |
+|---|---|
+| **🟢 Estudo de viaduto** | Ponto candidato a receber um viaduto, ainda em estudo de viabilidade |
+| **🟢 Viaduto proposto** | Local definido para um viaduto (passagem **superior** sobre via/ferrovia/curso d'agua) |
+| **🔵 Ponte proposta** | Local de uma nova ponte (geralmente sobre rio, corrego ou vale) |
+| **🟠 Passagem inferior de nivel** | Tunel/passagem por **baixo** da ferrovia ou rodovia |
+| **🟢 Passagem superior de nivel** | Passagem por **cima** (equivalente conceitual a viaduto) |
+| **🔴 Passagem em nivel** | Cruzamento no mesmo nivel da via principal &mdash; geralmente critico em ferrovias |
+| **🔴 Travessia critica** | Ponto onde pedestres / veiculos atravessam de forma insegura |
+| **🟣 Nova ligacao viaria** | Trecho de rua/avenida proposto para conectar areas hoje isoladas |
+| **🔵 Escola / 🟢 Comercio / 🔴 Industria / 🟠 Terminal** | Geradores/atratores de viagens (entram apenas como POIs, nao como nos do grafo) |
+"""
+        )
+
     with st.form("form_ponto", clear_on_submit=True):
         col1, col2, col3 = st.columns([2, 2, 2])
         with col1:
@@ -618,12 +645,14 @@ with tabs[3]:
 # ===========================================================================
 # ABA 5 - CENARIOS
 # ===========================================================================
-def get_or_build_base_graph():
-    if st.session_state.base_graph is None:
+def get_or_build_base_graph(force: bool = False):
+    if force or st.session_state.base_graph is None:
         st.session_state.base_graph = net.build_analysis_graph(
             st.session_state.layers.get("zonas"),
             st.session_state.layers.get("pontos_viaduto"),
             osm_graph=st.session_state.get("osm_graph"),
+            user_points_df=st.session_state.get("user_points"),
+            infra_categories=INFRA_CATEGORIES,
         )
     return st.session_state.base_graph
 
@@ -635,13 +664,25 @@ with tabs[4]:
         "As intervencoes alteram arestas do grafo analitico (centroides de zona + pontos de viaduto)."
     )
 
-    G = get_or_build_base_graph()
-    # Mostra apenas nos analiticos (zonas e pontos de viaduto); os nos OSM
-    # sao apenas a estrutura interna usada para calcular caminhos reais.
+    # Reconstrucao do grafo sempre que esta aba e exibida, para incorporar
+    # pontos novos cadastrados pelo usuario na aba Pontos/Edicao.
+    G = get_or_build_base_graph(force=True)
+    # Mostra apenas nos analiticos (zonas, pontos de viaduto, pontos do usuario);
+    # os nos OSM sao apenas a estrutura interna usada para calcular caminhos reais.
     node_options = [
         n for n, d in G.nodes(data=True)
-        if d.get("tipo") in ("zona", "viaduto")
+        if d.get("tipo") in ("zona", "viaduto", "usuario")
     ]
+
+    def _fmt_node(n):
+        d = G.nodes[n]
+        cat = d.get("categoria")
+        nome = d.get("nome", n)
+        tipo = d.get("tipo")
+        prefix = {"zona": "🟪 Zona", "viaduto": "🟢 Pto. viaduto", "usuario": "📍 Cadastrado"}.get(tipo, tipo)
+        if cat:
+            return f"{prefix} | {nome} ({cat})"
+        return f"{prefix} | {nome}"
 
     if st.session_state.get("osm_graph") is not None:
         st.info(
@@ -667,8 +708,8 @@ with tabs[4]:
                 cen_tipo = st.selectbox("Tipo de intervencao", scen.SCENARIO_TYPES, index=1)
                 cen_desc = st.text_area("Descricao", value="Implantacao de viaduto sobre a ferrovia ligando Z1 e Z3", height=80)
             with col2:
-                from_node = st.selectbox("No A (origem)", node_options, index=0, format_func=lambda n: f"{n} | {G.nodes[n].get('nome','')}")
-                to_node = st.selectbox("No B (destino)", node_options, index=min(1, len(node_options) - 1), format_func=lambda n: f"{n} | {G.nodes[n].get('nome','')}")
+                from_node = st.selectbox("No A (origem)", node_options, index=0, format_func=_fmt_node)
+                to_node = st.selectbox("No B (destino)", node_options, index=min(1, len(node_options) - 1), format_func=_fmt_node)
                 factor = st.slider(
                     "Fator de impedancia (1.0 = igual, <1 reduz custo, >1 = restricao)",
                     0.1, 2.0, 0.5, 0.05,

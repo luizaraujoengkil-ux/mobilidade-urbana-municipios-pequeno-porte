@@ -7,7 +7,7 @@ import folium
 import geopandas as gpd
 from folium.plugins import Draw, MeasureControl, MiniMap
 
-from .config import COLORS, MATIAS_BARBOSA_CENTER, DEFAULT_ZOOM
+from .config import CATEGORY_STYLE, COLORS, MATIAS_BARBOSA_CENTER, DEFAULT_ZOOM
 
 
 def create_base_map(center=MATIAS_BARBOSA_CENTER, zoom=DEFAULT_ZOOM, label: str = "Matias Barbosa / MG") -> folium.Map:
@@ -146,43 +146,33 @@ def add_pontos_viaduto(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True) 
     fg.add_to(m)
 
 
-def add_pontos_interesse(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True) -> None:
+def add_pontos_interesse(m: folium.Map, gdf: gpd.GeoDataFrame, show: bool = True,
+                          layer_name: str = "Pontos de Interesse") -> None:
     if gdf is None or gdf.empty:
         return
-    icon_map = {
-        "Escola": ("graduation-cap", "blue"),
-        "Comercio": ("shopping-cart", "green"),
-        "Industria": ("industry", "darkred"),
-        "Terminal/Parada": ("bus", "orange"),
-        "Estudo de viaduto": ("star", "green"),
-        "Travessia critica": ("warning-sign", "red"),
-        "Ponte proposta": ("road", "blue"),
-        "Viaduto proposto": ("road", "darkblue"),
-        "Outro": ("info-sign", "gray"),
-    }
-    fg = folium.FeatureGroup(name="Pontos de Interesse", show=show)
+    fg = folium.FeatureGroup(name=layer_name, show=show)
     for _, row in gdf.iterrows():
         cat = row.get("categoria", "Outro")
-        icon_name, color = icon_map.get(cat, ("info-sign", "gray"))
+        style = CATEGORY_STYLE.get(cat, CATEGORY_STYLE["Outro"])
         try:
             folium.Marker(
                 location=[row.geometry.y, row.geometry.x],
                 tooltip=f"<b>{row.get('nome','')}</b> ({cat})",
-                popup=row.get("descricao", ""),
-                icon=folium.Icon(color=color, icon=icon_name, prefix="fa"),
+                popup=str(row.get("descricao", "")),
+                icon=folium.Icon(color=style["color"], icon=style["icon"], prefix="fa"),
             ).add_to(fg)
         except Exception:
             folium.CircleMarker(
                 location=[row.geometry.y, row.geometry.x],
                 radius=6,
-                color=color,
+                color=style.get("marker", "#666"),
                 fill=True,
             ).add_to(fg)
     fg.add_to(m)
 
 
 def add_osm_network(m: folium.Map, edges_gdf: gpd.GeoDataFrame, show: bool = True) -> None:
-    """Renderiza a malha viaria do OpenStreetMap como uma camada de linhas finas."""
+    """Renderiza a malha viaria do OpenStreetMap em tons de azul (hierarquia viaria)."""
     if edges_gdf is None or len(edges_gdf) == 0:
         return
     fg = folium.FeatureGroup(name="Malha viaria (OSM)", show=show)
@@ -193,10 +183,10 @@ def add_osm_network(m: folium.Map, edges_gdf: gpd.GeoDataFrame, show: bool = Tru
         if isinstance(hw, list):
             hw = hw[0] if hw else None
         if hw in ("motorway", "trunk", "primary"):
-            return {"color": "#4A148C", "weight": 3.0, "opacity": 0.85}
+            return {"color": "#0D47A1", "weight": 4.0, "opacity": 0.95}   # azul escuro
         if hw in ("secondary", "tertiary"):
-            return {"color": "#6A1B9A", "weight": 2.0, "opacity": 0.75}
-        return {"color": "#888888", "weight": 1.2, "opacity": 0.65}
+            return {"color": "#1976D2", "weight": 2.6, "opacity": 0.85}   # azul medio
+        return {"color": "#64B5F6", "weight": 1.6, "opacity": 0.75}        # azul claro
 
     keep_cols = [c for c in ["highway", "name", "length"] if c in edges_gdf.columns]
     try:

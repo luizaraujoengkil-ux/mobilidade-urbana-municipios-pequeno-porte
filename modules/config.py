@@ -29,15 +29,49 @@ ZONE_TYPES = {
 
 POINT_CATEGORIES = [
     "Estudo de viaduto",
-    "Travessia critica",
-    "Ponte proposta",
     "Viaduto proposto",
+    "Ponte proposta",
+    "Passagem inferior de nivel",
+    "Passagem superior de nivel",
+    "Passagem em nivel",
+    "Travessia critica",
+    "Nova ligacao viaria",
     "Escola",
     "Comercio",
     "Industria",
     "Terminal/Parada",
     "Outro",
 ]
+
+# Categorias que representam intervencoes de infraestrutura -
+# pontos com essas categorias viram nos do grafo de analise (selecionaveis em Cenarios)
+INFRA_CATEGORIES = {
+    "Estudo de viaduto",
+    "Viaduto proposto",
+    "Ponte proposta",
+    "Passagem inferior de nivel",
+    "Passagem superior de nivel",
+    "Passagem em nivel",
+    "Travessia critica",
+    "Nova ligacao viaria",
+}
+
+# Cores e icones por categoria de ponto (Folium / mapa)
+CATEGORY_STYLE = {
+    "Estudo de viaduto":         {"color": "green",     "icon": "star",          "marker": "#2ECC71"},
+    "Viaduto proposto":          {"color": "darkgreen", "icon": "road",          "marker": "#1B5E20"},
+    "Ponte proposta":            {"color": "blue",      "icon": "anchor",        "marker": "#1565C0"},
+    "Passagem inferior de nivel":{"color": "orange",    "icon": "arrow-down",    "marker": "#EF6C00"},
+    "Passagem superior de nivel":{"color": "darkgreen", "icon": "arrow-up",      "marker": "#1B5E20"},
+    "Passagem em nivel":         {"color": "red",       "icon": "warning-sign",  "marker": "#C62828"},
+    "Travessia critica":         {"color": "red",       "icon": "exclamation-sign","marker": "#D32F2F"},
+    "Nova ligacao viaria":       {"color": "purple",    "icon": "random",        "marker": "#7B1FA2"},
+    "Escola":                    {"color": "blue",      "icon": "graduation-cap","marker": "#1976D2"},
+    "Comercio":                  {"color": "green",     "icon": "shopping-cart", "marker": "#388E3C"},
+    "Industria":                 {"color": "darkred",   "icon": "industry",      "marker": "#B71C1C"},
+    "Terminal/Parada":           {"color": "orange",    "icon": "bus",           "marker": "#F57C00"},
+    "Outro":                     {"color": "gray",      "icon": "info-sign",     "marker": "#757575"},
+}
 
 DISCLAIMER = (
     "Este prototipo utiliza zoneamento analitico e dados simplificados para "
