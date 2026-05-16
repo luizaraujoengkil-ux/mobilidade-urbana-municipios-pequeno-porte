@@ -10,7 +10,7 @@ from folium.plugins import Draw, MeasureControl, MiniMap
 from .config import COLORS, MATIAS_BARBOSA_CENTER, DEFAULT_ZOOM
 
 
-def create_base_map(center=MATIAS_BARBOSA_CENTER, zoom=DEFAULT_ZOOM) -> folium.Map:
+def create_base_map(center=MATIAS_BARBOSA_CENTER, zoom=DEFAULT_ZOOM, label: str = "Matias Barbosa / MG") -> folium.Map:
     m = folium.Map(
         location=center,
         zoom_start=zoom,
@@ -42,11 +42,11 @@ def create_base_map(center=MATIAS_BARBOSA_CENTER, zoom=DEFAULT_ZOOM) -> folium.M
     MiniMap(toggle_display=True, position="bottomleft").add_to(m)
     MeasureControl(primary_length_unit="meters", position="topleft").add_to(m)
 
-    # Marcador da cidade
+    # Marcador da cidade (label dinamico)
     folium.Marker(
         location=center,
-        tooltip="Matias Barbosa / MG",
-        popup="Centro aproximado de Matias Barbosa - MG",
+        tooltip=label,
+        popup=f"Centro aproximado de {label}",
         icon=folium.Icon(color="purple", icon="info-sign"),
     ).add_to(m)
 

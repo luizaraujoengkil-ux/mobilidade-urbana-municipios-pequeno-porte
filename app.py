@@ -133,13 +133,45 @@ st.markdown(
             <h1 style="margin-bottom:0;">Rodovias, Ferrovias e Mobilidade Urbana</h1>
             <p style="margin-top:4px;font-size:1.0rem;color:#555;">
                 Prototipo de apoio a analise de mobilidade em municipios de pequeno porte
-                &mdash; Estudo de caso: <b>Matias Barbosa / MG</b>
+                &mdash; Estudo de caso de demonstracao: <b>Matias Barbosa / MG</b>
             </p>
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+with st.expander("ℹ️ **Como usar este simulador** (clique para abrir)", expanded=True):
+    st.markdown(
+        """
+        Este e um **prototipo academico** para apoiar a analise de mobilidade urbana
+        em municipios de pequeno porte. Ele ja vem carregado com o estudo de caso de
+        **Matias Barbosa/MG** para fins de demonstracao, mas pode ser usado para
+        **qualquer outra cidade**.
+
+        ### 🎯 Para usar com OUTRA cidade:
+        1. **Painel lateral** → mude o **Modo de estudo** para *"Outro municipio"*.
+        2. Digite o **nome do municipio** e ajuste **latitude / longitude / zoom** do centro do mapa.
+        3. Aba **📥 Importar Arquivos** → envie KMZ, KML, GeoJSON ou CSV da nova cidade.
+        4. Aba **🔢 Matriz O-D** → atualize os pesos de geracao e atracao das novas zonas.
+
+        ### 📖 Roteiro de analise (recomendado):
+        1. **🗺️ Mapa** &mdash; visualize a area de estudo, zonas e infraestruturas existentes.
+        2. **📥 Importar Arquivos** &mdash; carregue seus dados reais (opcional).
+        3. **📍 Pontos / Edicao** &mdash; cadastre travessias criticas, pontes/viadutos propostos, escolas etc.
+        4. **🔢 Matriz O-D** &mdash; ajuste pesos de viagens (geracao / atracao) por zona e veja o fluxo estimado.
+        5. **🛠️ Cenarios** &mdash; crie alternativas ("e se construirmos um viaduto aqui?").
+        6. **📊 Comparacao** &mdash; veja o impacto de cada cenario em relacao ao atual.
+        7. **📑 Relatorio** &mdash; baixe o resumo em `.md`, `.txt` ou `.html`.
+
+        ### 💡 Dicas rapidas:
+        - **Clique no mapa** para ver as coordenadas (uteis para cadastrar pontos).
+        - Use a **regua** (canto superior esquerdo do mapa) para medir distancias.
+        - Os pontos cadastrados ficam apenas na sua sessao &mdash; exporte como CSV antes de fechar.
+        - Use as **caixas de selecao da sidebar** para ligar/desligar cada camada do mapa.
+        """
+    )
+
 st.divider()
 
 
@@ -149,8 +181,64 @@ st.divider()
 with st.sidebar:
     st.header("⚙️ Painel de Controle")
 
+    st.subheader("🎯 Modo de estudo")
+    modo = st.radio(
+        "Selecione o modo:",
+        ["🎓 Demonstracao - Matias Barbosa/MG", "🌍 Estudar outro municipio"],
+        index=0,
+        key="modo_estudo",
+        help="Use 'Demonstracao' para ver o estudo de caso completo de Matias Barbosa. "
+             "Use 'Outro municipio' para configurar uma nova area de estudo.",
+    )
+    is_demo = modo.startswith("🎓")
+
     st.subheader("📍 Area de estudo")
-    st.text_input("Nome do municipio", value="Matias Barbosa - MG", key="municipio_nome")
+    if is_demo:
+        st.text_input(
+            "Nome do municipio",
+            value="Matias Barbosa - MG",
+            key="municipio_nome",
+        )
+        st.session_state.map_center = MATIAS_BARBOSA_CENTER
+        st.session_state.map_zoom = DEFAULT_ZOOM
+        st.success("📚 Modo demonstracao ativo. Os dados de Matias Barbosa/MG estao carregados.")
+    else:
+        st.text_input(
+            "Nome do municipio",
+            value=st.session_state.get("municipio_nome_custom", ""),
+            placeholder="Ex: Cataguases - MG",
+            key="municipio_nome",
+        )
+        col_lat, col_lon = st.columns(2)
+        with col_lat:
+            new_lat = st.number_input(
+                "Latitude central",
+                value=float(st.session_state.get("custom_lat", MATIAS_BARBOSA_CENTER[0])),
+                format="%.6f",
+                key="custom_lat",
+            )
+        with col_lon:
+            new_lon = st.number_input(
+                "Longitude central",
+                value=float(st.session_state.get("custom_lon", MATIAS_BARBOSA_CENTER[1])),
+                format="%.6f",
+                key="custom_lon",
+            )
+        new_zoom = st.slider(
+            "Zoom inicial",
+            min_value=10, max_value=18,
+            value=int(st.session_state.get("custom_zoom", DEFAULT_ZOOM)),
+            key="custom_zoom",
+        )
+        st.session_state.map_center = (new_lat, new_lon)
+        st.session_state.map_zoom = new_zoom
+
+        st.warning(
+            "📌 **Proximos passos para sua cidade:**\n\n"
+            "1. Va na aba **📥 Importar Arquivos** e envie KMZ / KML / GeoJSON / CSV.\n"
+            "2. (Opcional) Desmarque as **camadas de demonstracao** abaixo para nao misturar com Matias Barbosa.\n"
+            "3. Atualize as zonas e pesos na aba **🔢 Matriz O-D**."
+        )
 
     st.subheader("🗺️ Camadas visiveis")
     show = st.session_state.show_layers
@@ -211,7 +299,10 @@ tabs = st.tabs(
 # ABA 1 - MAPA
 # ===========================================================================
 def build_main_map() -> folium.Map:
-    m = map_utils.create_base_map()
+    center = st.session_state.get("map_center", MATIAS_BARBOSA_CENTER)
+    zoom = st.session_state.get("map_zoom", DEFAULT_ZOOM)
+    label = st.session_state.get("municipio_nome") or "Area de Estudo"
+    m = map_utils.create_base_map(center=center, zoom=zoom, label=label)
 
     layers = st.session_state.layers
     show = st.session_state.show_layers
