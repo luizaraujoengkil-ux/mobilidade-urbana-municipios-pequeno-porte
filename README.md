@@ -1,6 +1,10 @@
 # Rodovias, Ferrovias e Mobilidade Urbana em Municipios de Pequeno Porte
 ## Estudo de Caso: Matias Barbosa / MG
 
+> **Autor:** Luiz Araujo de Souza Junior
+> **Contato:** [luiz.junior@ime.eb.br](mailto:luiz.junior@ime.eb.br)
+> **Disciplina:** Planejamento de Transportes - Instituto Militar de Engenharia (IME)
+
 Prototipo web interativo desenvolvido para a disciplina de **Planejamento de
 Transportes (IME)**. Permite carregar a area de estudo, zonas analiticas, malha
 viaria, linha ferrea, rodovias e pontos de interesse, alem de simular
@@ -257,7 +261,10 @@ Sugestoes:
 
 ---
 
-## 📜 Licenca / Uso
+## 📜 Autoria, Licenca / Uso
 
-Material academico desenvolvido para a disciplina de Planejamento de
-Transportes do **IME**. Uso livre para fins de estudo e demonstracao.
+Prototipo desenvolvido por **Luiz Araujo de Souza Junior**
+(luiz.junior@ime.eb.br) para a disciplina de **Planejamento de Transportes**
+do Instituto Militar de Engenharia (IME).
+
+Uso livre para fins academicos, de estudo e demonstracao.

@@ -252,6 +252,35 @@ def show_welcome_screen() -> None:
         "zonas, simular intervencoes e gerar relatorios."
     )
 
+    # ----- Assinatura do desenvolvedor -----
+    st.markdown(
+        """
+        <div style="margin-top: 40px; padding: 22px; text-align: center;
+                    background: linear-gradient(135deg, rgba(74,20,140,0.04) 0%,
+                                                       rgba(184,61,186,0.06) 100%);
+                    border-radius: 12px; border: 1px solid rgba(184,61,186,0.15);">
+            <div style="font-size:0.75rem;color:#9C27B0;letter-spacing:2px;
+                        font-weight:700;margin-bottom:6px;">
+                DESENVOLVIDO POR
+            </div>
+            <div style="font-size:1.15rem;color:#4A148C;font-weight:600;">
+                Luiz Araujo de Souza Junior
+            </div>
+            <div style="font-size:0.9rem;color:#666;margin-top:4px;">
+                Instituto Militar de Engenharia (IME) &middot;
+                <a href="mailto:luiz.junior@ime.eb.br"
+                   style="color:#9C27B0;text-decoration:none;font-weight:500;">
+                    luiz.junior@ime.eb.br
+                </a>
+            </div>
+            <div style="font-size:0.75rem;color:#888;margin-top:8px;font-style:italic;">
+                Disciplina de Planejamento de Transportes
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 # Gate: se ainda nao escolheu, mostra a tela inicial e para
 if "study_mode" not in st.session_state:
@@ -2144,9 +2173,13 @@ with tabs[7]:
 st.divider()
 st.markdown(
     f"""
-    <div style='text-align:center; color:#777; font-size:0.85rem;'>
-        Disciplina de Planejamento de Transportes - IME &middot;
-        Prototipo academico &middot; {datetime.now().year}
+    <div style='text-align:center; color:#777; font-size:0.85rem;
+                padding: 16px 12px; border-top: 1px solid rgba(255,255,255,0.06);'>
+        Disciplina de Planejamento de Transportes &middot; <b>IME</b> &middot;
+        Prototipo academico &middot; {datetime.now().year}<br>
+        Desenvolvido por <b>Luiz Araujo de Souza Junior</b> &middot;
+        <a href='mailto:luiz.junior@ime.eb.br' style='color:#9C27B0;
+            text-decoration:none;'>luiz.junior@ime.eb.br</a>
     </div>
     """,
     unsafe_allow_html=True,
