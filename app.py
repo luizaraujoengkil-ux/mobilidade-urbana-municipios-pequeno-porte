@@ -510,12 +510,21 @@ with st.sidebar:
                         st.error("Falha no download. Verifique conexao ou raio.")
                     else:
                         st.session_state.osm_graph = G_osm
-                        st.session_state.osm_edges = net.osm_edges_gdf(G_osm)
+                        edges = net.osm_edges_gdf(G_osm)
+                        st.session_state.osm_edges = edges
                         st.session_state.base_graph = None  # forca rebuild do grafo de analise
-                        st.success(
-                            f"Malha carregada: {G_osm.number_of_nodes()} nos, "
-                            f"{G_osm.number_of_edges()} arestas"
-                        )
+                        if edges is None or getattr(edges, "empty", True):
+                            st.warning(
+                                f"Grafo carregado ({G_osm.number_of_nodes()} nos, "
+                                f"{G_osm.number_of_edges()} arestas) mas falha ao "
+                                f"extrair geometrias para o mapa. Cenarios continuam "
+                                f"funcionando, mas a malha nao sera desenhada."
+                            )
+                        else:
+                            st.success(
+                                f"Malha carregada: {G_osm.number_of_nodes()} nos, "
+                                f"{G_osm.number_of_edges()} arestas ({len(edges)} segmentos desenhaveis)"
+                            )
                         st.rerun()
     with col_btn2:
         if st.button("🗑️ Limpar OSM", use_container_width=True, key="btn_osm_clear"):

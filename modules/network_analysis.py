@@ -81,13 +81,56 @@ def graph_to_geodataframes(G: nx.MultiDiGraph) -> tuple[gpd.GeoDataFrame, gpd.Ge
 
 
 def osm_edges_gdf(G_osm: nx.MultiDiGraph) -> Optional[gpd.GeoDataFrame]:
-    """GeoDataFrame com as arestas do grafo OSM (para plotar no mapa)."""
+    """GeoDataFrame com as arestas do grafo OSM (para plotar no mapa).
+
+    Robusto contra diferencas entre versoes do OSMnx:
+    - 1.x: ox.graph_to_gdfs(G, nodes=False, edges=True) retorna *apenas* edges
+    - 2.x: pode retornar (None, edges) dependendo da versao
+    - alguns ambientes: ox.graph_to_gdfs(G) retorna (nodes, edges)
+    """
     if G_osm is None or not OSMNX_AVAILABLE:
         return None
+    # Tentativa 1: chamada padrao retornando (nodes, edges)
     try:
-        _, edges = ox.graph_to_gdfs(G_osm, nodes=False, edges=True)
-        return edges
-    except Exception:
+        result = ox.graph_to_gdfs(G_osm)
+        if isinstance(result, tuple) and len(result) >= 2:
+            edges = result[1]
+        else:
+            edges = result
+        if edges is not None and not getattr(edges, "empty", True):
+            return edges
+    except Exception as exc:
+        print(f"[osm_edges_gdf] tentativa 1 falhou: {exc}")
+    # Tentativa 2: API com nodes=False, edges=True (1.x)
+    try:
+        result = ox.graph_to_gdfs(G_osm, nodes=False, edges=True)
+        if isinstance(result, tuple):
+            return result[-1]
+        return result
+    except Exception as exc:
+        print(f"[osm_edges_gdf] tentativa 2 falhou: {exc}")
+    # Fallback final: monta GeoDataFrame manualmente a partir do grafo
+    try:
+        from shapely.geometry import LineString
+        rows = []
+        for u, v, data in G_osm.edges(data=True):
+            geom = data.get("geometry")
+            if geom is None:
+                u_data = G_osm.nodes[u]
+                v_data = G_osm.nodes[v]
+                geom = LineString([(u_data["x"], u_data["y"]),
+                                   (v_data["x"], v_data["y"])])
+            rows.append({
+                "highway": data.get("highway"),
+                "name":    data.get("name"),
+                "length":  data.get("length"),
+                "geometry": geom,
+            })
+        if not rows:
+            return None
+        return gpd.GeoDataFrame(rows, crs="EPSG:4326")
+    except Exception as exc:
+        print(f"[osm_edges_gdf] fallback manual falhou: {exc}")
         return None
 
 
