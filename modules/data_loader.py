@@ -111,19 +111,131 @@ def _load_rodovias() -> Optional[gpd.GeoDataFrame]:
     return _safe_read(geojson_path)
 
 
+def _load_zonas() -> Optional[gpd.GeoDataFrame]:
+    """Carrega as zonas analiticas. Prefere KMZ real (com polygons z1, z2,
+    z3, z4) e cai para o GeoJSON.
+
+    Estrategia para o KMZ real:
+    - Le todos os Polygons preservando nome (placemark)
+    - Normaliza o codigo da zona: 'z1' -> 'Z1', 'Z3' -> 'Z3', etc.
+    - Multiplos polygons com mesmo codigo viram MultiPolygon (uniao geometrica)
+    - Adiciona propriedades padrao (tipo/geracao/atracao/populacao) que o
+      usuario pode editar na aba Matriz O-D depois.
+    """
+    geojson_path = DEMO_DIR / "zonas.geojson"
+    kmz_path = kmz_utils.find_kmz_by_prefixes(
+        DEMO_DIR,
+        prefixes=["zonas", "zonas_analiticas", "zoneamento", "zonas_matias"],
+    )
+    if kmz_path is not None:
+        gdf = kmz_utils.load_polygons_from_kmz(
+            kmz_path,
+            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
+        )
+        if gdf is not None and not gdf.empty:
+            # 1) Normaliza codigo de zona a partir do nome (z1, Z1, z 1 -> Z1)
+            zona_codes = (
+                gdf["nome"].astype(str).str.strip().str.upper()
+                                       .str.replace(r"\s+", "", regex=True)
+            )
+            gdf = gdf.assign(zona=zona_codes)
+
+            # 2) Mantem so codigos que parecem zonas (Z1, Z2, ..., ou Z10 etc.)
+            mask_zona = gdf["zona"].str.match(r"^Z\d+[A-Z]?$")
+            if mask_zona.any():
+                gdf = gdf[mask_zona].copy()
+
+            # 3) Junta multiplos polygons do mesmo codigo em MultiPolygon
+            try:
+                dissolved = gdf.dissolve(by="zona", aggfunc="first").reset_index()
+            except Exception as exc:
+                print(f"[data_loader] dissolve falhou: {exc} - usando polygons separados")
+                dissolved = gdf
+
+            # 4) Adiciona campos padrao para o modelo O-D
+            cor_default = {
+                "Z1": "#B83DBA", "Z2": "#F4A261", "Z3": "#F2D544", "Z4": "#E63946",
+            }
+            for col, default in [
+                ("tipo", "Misto"),
+                ("geracao", 50.0),
+                ("atracao", 50.0),
+                ("populacao", 1000.0),
+                ("empregos", 0.0),
+                ("funcao_od", "origem e destino"),
+                ("observacoes", "Geometria real do KMZ - editar pesos na aba Matriz O-D"),
+            ]:
+                if col not in dissolved.columns:
+                    dissolved[col] = default
+            if "cor" not in dissolved.columns:
+                dissolved["cor"] = dissolved["zona"].map(cor_default).fillna("#9E9E9E")
+            return dissolved
+        print(f"[data_loader] KMZ de zonas em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+    return _safe_read(geojson_path)
+
+
+def _load_pontos_viaduto() -> Optional[gpd.GeoDataFrame]:
+    """Carrega os pontos de estudo de viaduto. Prefere KMZ real."""
+    geojson_path = DEMO_DIR / "pontos_viaduto.geojson"
+    kmz_path = kmz_utils.find_kmz_by_prefixes(
+        DEMO_DIR,
+        prefixes=[
+            "pontos_viaduto", "pontos_de_viaduto", "viaduto", "viadutos",
+            "estudo_viaduto", "estudo_de_viaduto", "pontos_de_estudo",
+            "ponto_de_estudo", "pontos_estudo",
+        ],
+    )
+    if kmz_path is not None:
+        gdf = kmz_utils.load_points_from_kmz(
+            kmz_path,
+            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
+        )
+        if gdf is not None and not gdf.empty:
+            if "categoria" not in gdf.columns:
+                gdf["categoria"] = "Estudo de viaduto"
+            return gdf
+        print(f"[data_loader] KMZ de pontos de viaduto em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+    return _safe_read(geojson_path)
+
+
+def _load_pontos_interesse() -> Optional[gpd.GeoDataFrame]:
+    """Carrega os pontos de interesse. Prefere KMZ real."""
+    geojson_path = DEMO_DIR / "pontos_interesse.geojson"
+    kmz_path = kmz_utils.find_kmz_by_prefixes(
+        DEMO_DIR,
+        prefixes=[
+            "pontos_interesse", "pontos_de_interesse", "poi", "pois",
+            "interesse", "pontos_relevantes",
+        ],
+    )
+    if kmz_path is not None:
+        gdf = kmz_utils.load_points_from_kmz(
+            kmz_path,
+            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
+        )
+        if gdf is not None and not gdf.empty:
+            if "categoria" not in gdf.columns:
+                gdf["categoria"] = "Outro"
+            return gdf
+        print(f"[data_loader] KMZ de POIs em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+    return _safe_read(geojson_path)
+
+
 def load_sample_layers() -> dict:
     """Carrega todas as camadas de exemplo de Matias Barbosa.
 
     Para cada camada, prefere KMZ real se existir na pasta demo;
-    senao, cai automaticamente para o GeoJSON sintetico.
+    senao, cai automaticamente para o GeoJSON sintetico. Permite ao
+    usuario substituir qualquer camada pelo seu KMZ original do Google
+    Earth/QGIS sem editar nenhum codigo.
     """
     layers = {
-        "area_estudo": _load_area_estudo(),
-        "zonas": _safe_read(DEMO_DIR / "zonas.geojson"),
-        "ferrovia": _load_ferrovia(),
-        "rodovias": _load_rodovias(),
-        "pontos_viaduto": _safe_read(DEMO_DIR / "pontos_viaduto.geojson"),
-        "pontos_interesse": _safe_read(DEMO_DIR / "pontos_interesse.geojson"),
+        "area_estudo":     _load_area_estudo(),
+        "zonas":           _load_zonas(),
+        "ferrovia":        _load_ferrovia(),
+        "rodovias":        _load_rodovias(),
+        "pontos_viaduto":  _load_pontos_viaduto(),
+        "pontos_interesse": _load_pontos_interesse(),
     }
     return layers
 

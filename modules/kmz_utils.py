@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -347,24 +348,186 @@ def load_lines_from_kmz(
     return None
 
 
+def _normalize_filename(s: str) -> str:
+    """Normaliza string para comparacao: remove acentos, lowercase,
+    substitui espacos/tracos/parenteses por '_'.
+    """
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    s = s.lower()
+    for ch in (" ", "-", "(", ")", "[", "]"):
+        s = s.replace(ch, "_")
+    while "__" in s:
+        s = s.replace("__", "_")
+    return s
+
+
 def find_kmz_by_prefixes(folder: str | os.PathLike, prefixes: list) -> Optional[Path]:
-    """Procura na pasta o primeiro arquivo .kmz cujo nome (lowercase) comeca
+    """Procura na pasta o primeiro arquivo .kmz cujo nome NORMALIZADO comeca
     com qualquer um dos prefixes da lista.
 
-    Tolera nomenclatura variavel inclusive extensao dupla ('.kmz.kmz').
+    Normalizacao remove acentos, lowercase, troca espacos/parenteses por '_'.
+    Tolera nomenclatura variavel:
+      'Área de estudo.kmz', 'area_de_estudo.kmz', 'area-de-estudo.kmz',
+      'area_de_estudo_matias_barbosa.kmz.kmz' (extensao dupla) etc.
     """
     folder_path = Path(folder)
     if not folder_path.is_dir():
         return None
+    normalized_prefixes = [_normalize_filename(p) for p in prefixes]
     for entry in sorted(folder_path.iterdir()):
         if not entry.is_file():
             continue
-        nlow = entry.name.lower()
-        if not nlow.endswith(".kmz"):
+        if not entry.name.lower().endswith(".kmz"):
             continue
-        for pref in prefixes:
-            if nlow.startswith(pref.lower()):
+        nname = _normalize_filename(entry.name)
+        for pref in normalized_prefixes:
+            if nname.startswith(pref):
                 return entry
+    return None
+
+
+def _find_all_polygons_in_kml(kml_text: str) -> list:
+    """Retorna lista de (nome, descricao, Polygon) - TODOS os polygons do KML.
+
+    Cada Placemark com Polygon vira um item da lista.
+    """
+    try:
+        root = ET.fromstring(kml_text)
+    except ET.ParseError:
+        return []
+    out = []
+    placemarks = root.findall(f".//{_KML_NS}Placemark")
+    if len(placemarks) == 0:
+        placemarks = root.findall(".//Placemark")
+    for pm in placemarks:
+        nome_el = pm.find(f"{_KML_NS}name")
+        if nome_el is None:
+            nome_el = pm.find("name")
+        nome = nome_el.text.strip() if (nome_el is not None and nome_el.text) else "(sem nome)"
+        desc_el = pm.find(f"{_KML_NS}description")
+        if desc_el is None:
+            desc_el = pm.find("description")
+        descricao = desc_el.text.strip() if (desc_el is not None and desc_el.text) else ""
+
+        # Pode haver mais de um Polygon dentro de um Placemark (MultiGeometry)
+        poly_elems = pm.findall(f".//{_KML_NS}Polygon")
+        if len(poly_elems) == 0:
+            poly_elems = pm.findall(".//Polygon")
+        for poly in poly_elems:
+            outer = poly.find(f"{_KML_NS}outerBoundaryIs/{_KML_NS}LinearRing/{_KML_NS}coordinates")
+            if outer is None:
+                outer = poly.find("outerBoundaryIs/LinearRing/coordinates")
+            if outer is None or outer.text is None:
+                continue
+            outer_coords = _parse_coordinates_text(outer.text)
+            if len(outer_coords) < 3:
+                continue
+            inner_rings = []
+            inner_elems = poly.findall(
+                f"{_KML_NS}innerBoundaryIs/{_KML_NS}LinearRing/{_KML_NS}coordinates"
+            )
+            if len(inner_elems) == 0:
+                inner_elems = poly.findall("innerBoundaryIs/LinearRing/coordinates")
+            for inner in inner_elems:
+                if inner.text is None:
+                    continue
+                ring = _parse_coordinates_text(inner.text)
+                if len(ring) >= 3:
+                    inner_rings.append(ring)
+            try:
+                out.append((nome, descricao, Polygon(outer_coords, inner_rings)))
+            except Exception:
+                continue
+    return out
+
+
+def load_polygons_from_kmz(
+    kmz_path: str | os.PathLike,
+    fallback_to_geojson: Optional[str | os.PathLike] = None,
+) -> Optional[gpd.GeoDataFrame]:
+    """Le TODOS os Polygons de um KMZ. Cada Placemark vira uma feicao
+    preservando nome e descricao. Retorna GeoDataFrame EPSG:4326.
+    """
+    p = Path(kmz_path)
+    found = []
+    if p.exists():
+        try:
+            with zipfile.ZipFile(p, "r") as zf:
+                kml_names = [n for n in zf.namelist() if n.lower().endswith(".kml")]
+                for kml_name in kml_names:
+                    try:
+                        with zf.open(kml_name) as fh:
+                            kml_text = fh.read().decode("utf-8", errors="replace")
+                    except Exception:
+                        continue
+                    found.extend(_find_all_polygons_in_kml(kml_text))
+        except Exception as exc:
+            print(f"[kmz_utils] Falha ao abrir {p}: {exc}")
+    else:
+        print(f"[kmz_utils] KMZ nao encontrado em {p}")
+
+    if found:
+        rows = []
+        for nome, descricao, geom in found:
+            rows.append({
+                "nome": nome,
+                "descricao": descricao,
+                "source": "KMZ real",
+                "geometry": geom,
+            })
+        return gpd.GeoDataFrame(rows, crs="EPSG:4326")
+
+    if fallback_to_geojson is not None:
+        fp = Path(fallback_to_geojson)
+        if fp.exists():
+            try:
+                return gpd.read_file(fp)
+            except Exception as exc:
+                print(f"[kmz_utils] Fallback GeoJSON falhou em {fp}: {exc}")
+    return None
+
+
+def load_points_from_kmz(
+    kmz_path: str | os.PathLike,
+    fallback_to_geojson: Optional[str | os.PathLike] = None,
+) -> Optional[gpd.GeoDataFrame]:
+    """Le todos os Points de um KMZ. Cada Placemark Point vira uma feicao."""
+    p = Path(kmz_path)
+    found = []
+    if p.exists():
+        try:
+            with zipfile.ZipFile(p, "r") as zf:
+                kml_names = [n for n in zf.namelist() if n.lower().endswith(".kml")]
+                for kml_name in kml_names:
+                    try:
+                        with zf.open(kml_name) as fh:
+                            kml_text = fh.read().decode("utf-8", errors="replace")
+                    except Exception:
+                        continue
+                    found.extend(_find_points_in_kml(kml_text))
+        except Exception as exc:
+            print(f"[kmz_utils] Falha ao abrir {p}: {exc}")
+    else:
+        print(f"[kmz_utils] KMZ nao encontrado em {p}")
+
+    if found:
+        rows = []
+        for nome, descricao, geom in found:
+            rows.append({
+                "nome": nome,
+                "descricao": descricao,
+                "source": "KMZ real",
+                "geometry": geom,
+            })
+        return gpd.GeoDataFrame(rows, crs="EPSG:4326")
+
+    if fallback_to_geojson is not None:
+        fp = Path(fallback_to_geojson)
+        if fp.exists():
+            try:
+                return gpd.read_file(fp)
+            except Exception as exc:
+                print(f"[kmz_utils] Fallback GeoJSON falhou em {fp}: {exc}")
     return None
 
 
