@@ -30,10 +30,39 @@ def _safe_read(path: Path) -> Optional[gpd.GeoDataFrame]:
         return None
 
 
+def _load_area_estudo() -> Optional[gpd.GeoDataFrame]:
+    """Carrega a area de estudo. Prefere o KMZ real se existir, com fallback
+    automatico para area_estudo.geojson.
+
+    Procura por arquivos KMZ na pasta demo com prefixo 'area_de_estudo'
+    (tolera 'area_de_estudo_matias_barbosa.kmz' ou variantes com extensao
+    dupla como '.kmz.kmz').
+    """
+    geojson_path = DEMO_DIR / "area_estudo.geojson"
+    kmz_path = kmz_utils.find_area_kmz(DEMO_DIR, prefix="area_de_estudo")
+
+    if kmz_path is not None:
+        gdf = kmz_utils.load_polygon_from_kmz(
+            kmz_path,
+            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
+            name="Area de Estudo",
+        )
+        if gdf is not None and not gdf.empty:
+            return gdf
+        # Se chegou aqui, KMZ existe mas leitura falhou - aviso discreto
+        print(
+            f"[data_loader] KMZ da area de estudo encontrado em {kmz_path} "
+            f"mas nao pode ser lido. Usando GeoJSON padrao."
+        )
+
+    # Fallback: GeoJSON original (comportamento anterior)
+    return _safe_read(geojson_path)
+
+
 def load_sample_layers() -> dict:
     """Carrega todas as camadas de exemplo de Matias Barbosa."""
     layers = {
-        "area_estudo": _safe_read(DEMO_DIR / "area_estudo.geojson"),
+        "area_estudo": _load_area_estudo(),
         "zonas": _safe_read(DEMO_DIR / "zonas.geojson"),
         "ferrovia": _safe_read(DEMO_DIR / "ferrovia.geojson"),
         "rodovias": _safe_read(DEMO_DIR / "rodovias.geojson"),
