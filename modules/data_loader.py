@@ -115,6 +115,11 @@ def _load_zonas() -> Optional[gpd.GeoDataFrame]:
     """Carrega as zonas analiticas. Prefere KMZ real (com polygons z1, z2,
     z3, z4) e cai para o GeoJSON.
 
+    Aceita TANTO:
+    - 1 KMZ master 'zonas.kmz' com varios polygons dentro
+    - VARIOS KMZ um por zona ('z1.kmz', 'z2.kmz', 'z2a.kmz', 'z3.kmz', ...)
+      todos sao lidos e combinados.
+
     Estrategia para o KMZ real:
     - Le todos os Polygons preservando nome (placemark)
     - Normaliza o codigo da zona: 'z1' -> 'Z1', 'Z3' -> 'Z3', etc.
@@ -123,15 +128,28 @@ def _load_zonas() -> Optional[gpd.GeoDataFrame]:
       usuario pode editar na aba Matriz O-D depois.
     """
     geojson_path = DEMO_DIR / "zonas.geojson"
-    kmz_path = kmz_utils.find_kmz_by_prefixes(
+    kmz_paths = kmz_utils.find_all_kmzs_by_prefixes(
         DEMO_DIR,
-        prefixes=["zonas", "zonas_analiticas", "zoneamento", "zonas_matias"],
+        prefixes=[
+            "zonas", "zonas_analiticas", "zoneamento", "zonas_matias",
+            # cada zona como arquivo individual
+            "z1", "z2", "z3", "z4", "z5", "z6", "z_",
+        ],
     )
-    if kmz_path is not None:
-        gdf = kmz_utils.load_polygons_from_kmz(
-            kmz_path,
-            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
-        )
+    if kmz_paths:
+        # Le todos os KMZ encontrados e empilha em um unico GeoDataFrame
+        frames = []
+        for kmz_path in kmz_paths:
+            gdf_part = kmz_utils.load_polygons_from_kmz(kmz_path)
+            if gdf_part is not None and not gdf_part.empty:
+                frames.append(gdf_part)
+        if frames:
+            gdf = gpd.GeoDataFrame(
+                pd.concat(frames, ignore_index=True),
+                crs=frames[0].crs or "EPSG:4326",
+            )
+        else:
+            gdf = None
         if gdf is not None and not gdf.empty:
             # 1) Normaliza codigo de zona a partir do nome (z1, Z1, z 1 -> Z1)
             zona_codes = (
@@ -170,31 +188,45 @@ def _load_zonas() -> Optional[gpd.GeoDataFrame]:
             if "cor" not in dissolved.columns:
                 dissolved["cor"] = dissolved["zona"].map(cor_default).fillna("#9E9E9E")
             return dissolved
-        print(f"[data_loader] KMZ de zonas em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+        print(f"[data_loader] KMZ(s) de zonas em {kmz_paths} nao pode(m) ser lido(s). Usando GeoJSON.")
     return _safe_read(geojson_path)
 
 
 def _load_pontos_viaduto() -> Optional[gpd.GeoDataFrame]:
-    """Carrega os pontos de estudo de viaduto. Prefere KMZ real."""
+    """Carrega os pontos de estudo de viaduto. Prefere KMZ(s) real(is).
+
+    Aceita TANTO:
+    - 1 KMZ master 'pontos_viaduto.kmz' com varios pontos dentro
+    - VARIOS KMZ um por ponto ('ponto de estudo 1 de viaduto.kmz', etc.)
+
+    Tambem aceita Placemarks com LineString (em vez de Point): converte
+    automaticamente para Point no centroide da linha. Util quando o
+    usuario desenhou linhas no Google Earth para representar viadutos.
+    """
     geojson_path = DEMO_DIR / "pontos_viaduto.geojson"
-    kmz_path = kmz_utils.find_kmz_by_prefixes(
+    kmz_paths = kmz_utils.find_all_kmzs_by_prefixes(
         DEMO_DIR,
         prefixes=[
             "pontos_viaduto", "pontos_de_viaduto", "viaduto", "viadutos",
             "estudo_viaduto", "estudo_de_viaduto", "pontos_de_estudo",
-            "ponto_de_estudo", "pontos_estudo",
+            "ponto_de_estudo", "pontos_estudo", "ponto_viaduto",
         ],
     )
-    if kmz_path is not None:
-        gdf = kmz_utils.load_points_from_kmz(
-            kmz_path,
-            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
-        )
-        if gdf is not None and not gdf.empty:
+    if kmz_paths:
+        frames = []
+        for kp in kmz_paths:
+            part = kmz_utils.load_points_from_kmz(kp, accept_lines_as_points=True)
+            if part is not None and not part.empty:
+                frames.append(part)
+        if frames:
+            gdf = gpd.GeoDataFrame(
+                pd.concat(frames, ignore_index=True),
+                crs=frames[0].crs or "EPSG:4326",
+            )
             if "categoria" not in gdf.columns:
                 gdf["categoria"] = "Estudo de viaduto"
             return gdf
-        print(f"[data_loader] KMZ de pontos de viaduto em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+        print(f"[data_loader] KMZ(s) de viaduto em {kmz_paths} nao pode(m) ser lido(s). Usando GeoJSON.")
     return _safe_read(geojson_path)
 
 

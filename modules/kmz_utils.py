@@ -361,19 +361,18 @@ def _normalize_filename(s: str) -> str:
     return s
 
 
-def find_kmz_by_prefixes(folder: str | os.PathLike, prefixes: list) -> Optional[Path]:
-    """Procura na pasta o primeiro arquivo .kmz cujo nome NORMALIZADO comeca
-    com qualquer um dos prefixes da lista.
+def find_all_kmzs_by_prefixes(folder: str | os.PathLike, prefixes: list) -> list:
+    """Procura na pasta TODOS os arquivos .kmz cujo nome NORMALIZADO comeca
+    com qualquer um dos prefixes da lista. Retorna lista de Paths ordenada.
 
-    Normalizacao remove acentos, lowercase, troca espacos/parenteses por '_'.
-    Tolera nomenclatura variavel:
-      'Área de estudo.kmz', 'area_de_estudo.kmz', 'area-de-estudo.kmz',
-      'area_de_estudo_matias_barbosa.kmz.kmz' (extensao dupla) etc.
+    Util quando o usuario exporta cada feicao do Google Earth como KMZ
+    separado (ex: z1.kmz, z2.kmz, z3.kmz, z3a.kmz, z4.kmz ...).
     """
     folder_path = Path(folder)
     if not folder_path.is_dir():
-        return None
+        return []
     normalized_prefixes = [_normalize_filename(p) for p in prefixes]
+    result = []
     for entry in sorted(folder_path.iterdir()):
         if not entry.is_file():
             continue
@@ -382,8 +381,15 @@ def find_kmz_by_prefixes(folder: str | os.PathLike, prefixes: list) -> Optional[
         nname = _normalize_filename(entry.name)
         for pref in normalized_prefixes:
             if nname.startswith(pref):
-                return entry
-    return None
+                result.append(entry)
+                break
+    return result
+
+
+def find_kmz_by_prefixes(folder: str | os.PathLike, prefixes: list) -> Optional[Path]:
+    """Versao 'single' de find_all_kmzs_by_prefixes - retorna o primeiro."""
+    matches = find_all_kmzs_by_prefixes(folder, prefixes)
+    return matches[0] if matches else None
 
 
 def _find_all_polygons_in_kml(kml_text: str) -> list:
@@ -490,8 +496,16 @@ def load_polygons_from_kmz(
 def load_points_from_kmz(
     kmz_path: str | os.PathLike,
     fallback_to_geojson: Optional[str | os.PathLike] = None,
+    accept_lines_as_points: bool = True,
 ) -> Optional[gpd.GeoDataFrame]:
-    """Le todos os Points de um KMZ. Cada Placemark Point vira uma feicao."""
+    """Le todos os Points de um KMZ. Cada Placemark Point vira uma feicao.
+
+    Args:
+        accept_lines_as_points: se True (default), tambem aceita Placemarks
+            com LineString e converte cada um para um Point no centroide da
+            linha. Util quando o usuario desenhou linhas no Google Earth
+            para representar pontos de viaduto.
+    """
     p = Path(kmz_path)
     found = []
     if p.exists():
@@ -505,6 +519,15 @@ def load_points_from_kmz(
                     except Exception:
                         continue
                     found.extend(_find_points_in_kml(kml_text))
+                    # se nao achou pontos e o caller permite, tenta extrair
+                    # linhas e converte para centroide (Point)
+                    if accept_lines_as_points and len(found) == 0:
+                        for nome, descricao, geom in _find_first_line_in_kml(kml_text):
+                            try:
+                                centroid = geom.centroid
+                                found.append((nome, descricao, Point(centroid.x, centroid.y)))
+                            except Exception:
+                                continue
         except Exception as exc:
             print(f"[kmz_utils] Falha ao abrir {p}: {exc}")
     else:
