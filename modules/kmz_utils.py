@@ -19,7 +19,7 @@ from typing import Optional
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import LineString, MultiLineString, Point, Polygon, MultiPolygon
 
 try:
     import fiona  # type: ignore
@@ -214,6 +214,157 @@ def load_polygon_from_kmz(kmz_path: str | os.PathLike,
                 return gpd.read_file(fp)
             except Exception as exc:
                 print(f"[kmz_utils] Fallback GeoJSON falhou em {fp}: {exc}")
+    return None
+
+
+def _find_first_line_in_kml(kml_text: str) -> list:
+    """Retorna lista de (nome, descricao, LineString/MultiLineString) do KML.
+
+    Suporta tags <LineString> e <MultiGeometry>/<LineString> (KML padrao).
+    """
+    try:
+        root = ET.fromstring(kml_text)
+    except ET.ParseError:
+        return []
+
+    out = []
+    # Itera Placemarks para preservar nome/descricao
+    placemarks = root.findall(f".//{_KML_NS}Placemark")
+    if len(placemarks) == 0:
+        placemarks = root.findall(".//Placemark")
+    for pm in placemarks:
+        nome_el = pm.find(f"{_KML_NS}name")
+        if nome_el is None:
+            nome_el = pm.find("name")
+        nome = nome_el.text.strip() if (nome_el is not None and nome_el.text) else "(sem nome)"
+        desc_el = pm.find(f"{_KML_NS}description")
+        if desc_el is None:
+            desc_el = pm.find("description")
+        descricao = desc_el.text.strip() if (desc_el is not None and desc_el.text) else ""
+
+        # Procura LineStrings (diretamente ou dentro de MultiGeometry)
+        line_coords_elems = pm.findall(f".//{_KML_NS}LineString/{_KML_NS}coordinates")
+        if len(line_coords_elems) == 0:
+            line_coords_elems = pm.findall(".//LineString/coordinates")
+        lines = []
+        for elem in line_coords_elems:
+            if elem.text is None:
+                continue
+            pts = _parse_coordinates_text(elem.text)
+            if len(pts) >= 2:
+                lines.append(LineString(pts))
+        if not lines:
+            continue
+        geom = lines[0] if len(lines) == 1 else MultiLineString(lines)
+        out.append((nome, descricao, geom))
+    return out
+
+
+def _find_points_in_kml(kml_text: str) -> list:
+    """Retorna lista de (nome, descricao, Point) do KML."""
+    try:
+        root = ET.fromstring(kml_text)
+    except ET.ParseError:
+        return []
+    out = []
+    placemarks = root.findall(f".//{_KML_NS}Placemark")
+    if len(placemarks) == 0:
+        placemarks = root.findall(".//Placemark")
+    for pm in placemarks:
+        nome_el = pm.find(f"{_KML_NS}name") or pm.find("name")
+        nome = nome_el.text.strip() if (nome_el is not None and nome_el.text) else "(sem nome)"
+        desc_el = pm.find(f"{_KML_NS}description") or pm.find("description")
+        descricao = desc_el.text.strip() if (desc_el is not None and desc_el.text) else ""
+
+        coord_el = pm.find(f"{_KML_NS}Point/{_KML_NS}coordinates")
+        if coord_el is None:
+            coord_el = pm.find("Point/coordinates")
+        if coord_el is None or coord_el.text is None:
+            continue
+        pts = _parse_coordinates_text(coord_el.text)
+        if not pts:
+            continue
+        out.append((nome, descricao, Point(pts[0])))
+    return out
+
+
+def load_lines_from_kmz(
+    kmz_path: str | os.PathLike,
+    fallback_to_geojson: Optional[str | os.PathLike] = None,
+    default_name: str = "Linha",
+    keep_geojson_properties: bool = True,
+) -> Optional[gpd.GeoDataFrame]:
+    """Le todas as LineStrings de um KMZ e retorna como GeoDataFrame EPSG:4326.
+
+    Preserva nome/descricao de cada Placemark do KML.
+
+    Args:
+        kmz_path: caminho do .kmz
+        fallback_to_geojson: caminho do .geojson alternativo caso o KMZ falhe
+        default_name: nome a usar para Placemarks sem <name>
+        keep_geojson_properties: se True e usar fallback GeoJSON, mantem todas
+            as propriedades originais (incluindo 'categoria' das rodovias).
+    """
+    p = Path(kmz_path)
+    found_lines: list = []
+
+    if p.exists():
+        try:
+            with zipfile.ZipFile(p, "r") as zf:
+                kml_names = [n for n in zf.namelist() if n.lower().endswith(".kml")]
+                for kml_name in kml_names:
+                    try:
+                        with zf.open(kml_name) as fh:
+                            kml_text = fh.read().decode("utf-8", errors="replace")
+                    except Exception:
+                        continue
+                    found_lines.extend(_find_first_line_in_kml(kml_text))
+        except Exception as exc:
+            print(f"[kmz_utils] Falha ao abrir {p}: {exc}")
+    else:
+        print(f"[kmz_utils] KMZ nao encontrado em {p}")
+
+    if found_lines:
+        rows = []
+        for nome, descricao, geom in found_lines:
+            rows.append({
+                "nome": nome or default_name,
+                "descricao": descricao,
+                "tipo": "linha",
+                "source": "KMZ real",
+                "geometry": geom,
+            })
+        return gpd.GeoDataFrame(rows, crs="EPSG:4326")
+
+    # Fallback: GeoJSON
+    if fallback_to_geojson is not None:
+        fp = Path(fallback_to_geojson)
+        if fp.exists():
+            try:
+                return gpd.read_file(fp)
+            except Exception as exc:
+                print(f"[kmz_utils] Fallback GeoJSON falhou em {fp}: {exc}")
+    return None
+
+
+def find_kmz_by_prefixes(folder: str | os.PathLike, prefixes: list) -> Optional[Path]:
+    """Procura na pasta o primeiro arquivo .kmz cujo nome (lowercase) comeca
+    com qualquer um dos prefixes da lista.
+
+    Tolera nomenclatura variavel inclusive extensao dupla ('.kmz.kmz').
+    """
+    folder_path = Path(folder)
+    if not folder_path.is_dir():
+        return None
+    for entry in sorted(folder_path.iterdir()):
+        if not entry.is_file():
+            continue
+        nlow = entry.name.lower()
+        if not nlow.endswith(".kmz"):
+            continue
+        for pref in prefixes:
+            if nlow.startswith(pref.lower()):
+                return entry
     return None
 
 

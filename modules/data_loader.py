@@ -59,13 +59,69 @@ def _load_area_estudo() -> Optional[gpd.GeoDataFrame]:
     return _safe_read(geojson_path)
 
 
+def _load_ferrovia() -> Optional[gpd.GeoDataFrame]:
+    """Carrega a ferrovia. Prefere KMZ real se existir.
+
+    Procura por arquivos KMZ na pasta demo com prefixos:
+    'ferrovia', 'linha_do_trem', 'linha_ferrea', 'trem'.
+    Fallback: data/demo_matias_barbosa/ferrovia.geojson.
+    """
+    geojson_path = DEMO_DIR / "ferrovia.geojson"
+    kmz_path = kmz_utils.find_kmz_by_prefixes(
+        DEMO_DIR,
+        prefixes=["ferrovia", "linha_do_trem", "linha_ferrea", "linha-ferrea",
+                  "linha_trem", "trem", "railway"],
+    )
+    if kmz_path is not None:
+        gdf = kmz_utils.load_lines_from_kmz(
+            kmz_path,
+            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
+            default_name="Linha do Trem",
+        )
+        if gdf is not None and not gdf.empty:
+            return gdf
+        print(f"[data_loader] KMZ da ferrovia em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+    return _safe_read(geojson_path)
+
+
+def _load_rodovias() -> Optional[gpd.GeoDataFrame]:
+    """Carrega as rodovias (BR-040, MG-353, Uniao Industria...).
+
+    Prefere KMZ real se existir. Procura por prefixos:
+    'rodovias', 'rodovia', 'br_040', 'br040', 'br-040', 'mg_353', 'mg353',
+    'uniao_industria', 'uniao-industria'.
+    Fallback: data/demo_matias_barbosa/rodovias.geojson.
+    """
+    geojson_path = DEMO_DIR / "rodovias.geojson"
+    kmz_path = kmz_utils.find_kmz_by_prefixes(
+        DEMO_DIR,
+        prefixes=["rodovias", "rodovia", "br_040", "br040", "br-040",
+                  "mg_353", "mg353", "mg-353",
+                  "uniao_industria", "uniao-industria", "uniaoindustria"],
+    )
+    if kmz_path is not None:
+        gdf = kmz_utils.load_lines_from_kmz(
+            kmz_path,
+            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
+            default_name="Rodovia",
+        )
+        if gdf is not None and not gdf.empty:
+            return gdf
+        print(f"[data_loader] KMZ de rodovias em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+    return _safe_read(geojson_path)
+
+
 def load_sample_layers() -> dict:
-    """Carrega todas as camadas de exemplo de Matias Barbosa."""
+    """Carrega todas as camadas de exemplo de Matias Barbosa.
+
+    Para cada camada, prefere KMZ real se existir na pasta demo;
+    senao, cai automaticamente para o GeoJSON sintetico.
+    """
     layers = {
         "area_estudo": _load_area_estudo(),
         "zonas": _safe_read(DEMO_DIR / "zonas.geojson"),
-        "ferrovia": _safe_read(DEMO_DIR / "ferrovia.geojson"),
-        "rodovias": _safe_read(DEMO_DIR / "rodovias.geojson"),
+        "ferrovia": _load_ferrovia(),
+        "rodovias": _load_rodovias(),
         "pontos_viaduto": _safe_read(DEMO_DIR / "pontos_viaduto.geojson"),
         "pontos_interesse": _safe_read(DEMO_DIR / "pontos_interesse.geojson"),
     }
