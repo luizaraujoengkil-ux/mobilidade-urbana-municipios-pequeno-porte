@@ -35,6 +35,9 @@ def build_markdown_report(
     odm_detailed_df=None,               # opcional - matriz OD via CSV detalhado
     odm_scenarios_compare=None,         # opcional - comparativo base vs cenarios CSV
     social_cost_per_scenario=None,      # opcional - lista de custos por cenario
+    balancing_info: dict = None,        # opcional - resultado do balanceamento P/A
+    production_df=None,                 # opcional - vetor de producao balanceado
+    attraction_df=None,                 # opcional - vetor de atracao balanceado
 ) -> str:
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     out = StringIO()
@@ -60,6 +63,32 @@ def build_markdown_report(
     else:
         w("_Nenhum ponto cadastrado durante a sessao._")
     w("\n\n")
+
+    # ----- Secao Modelo 4 Etapas (se balanceamento foi aplicado) -----
+    if balancing_info is not None:
+        w("## 3.5. Balanceamento da matriz OD (Modelo de 4 Etapas)\n\n")
+        w("Foi aplicado o procedimento classico de balanceamento da matriz OD "
+          "previsto na **Etapa 2 do modelo de 4 etapas** (Geracao → "
+          "Balanceamento → Distribuicao → Alocacao):\n\n")
+        w(f"- **Soma original de producao (∑P):** {balancing_info.get('sum_prod_original', 0):,.2f}\n")
+        w(f"- **Soma original de atracao  (∑A):** {balancing_info.get('sum_attr_original', 0):,.2f}\n")
+        if balancing_info.get("adjusted"):
+            w(f"- **Vetor ajustado:** {balancing_info['adjusted']} "
+              f"(multiplicado por **× {balancing_info['factor']:.4f}**)\n")
+        else:
+            w(f"- **Vetor ajustado:** nenhum (∑P ja era igual a ∑A)\n")
+        w(f"- **∑P balanceado = ∑A balanceado = {balancing_info.get('sum_prod_balanced', 0):,.2f}**\n\n")
+        if production_df is not None and not production_df.empty:
+            w("### Vetor de PRODUCAO (origens) - balanceado\n\n")
+            w(_df_to_md(production_df))
+            w("\n\n")
+        if attraction_df is not None and not attraction_df.empty:
+            w("### Vetor de ATRACAO (destinos) - balanceado\n\n")
+            w(_df_to_md(attraction_df))
+            w("\n\n")
+        w("> **Repartição modal:** assumida 100% modo individual (veiculos "
+          "particulares) por simplificacao. A inclusao de transporte coletivo "
+          "e modos ativos exige pesquisa de mobilidade local.\n\n")
 
     w("## 4. Matriz Origem-Destino (modelo gravitacional simplificado)\n\n")
     w("Modelo utilizado: $T_{ij} = (G_i \\cdot A_j) / d_{ij}^{\\beta}$ com $\\beta=2$ e ")

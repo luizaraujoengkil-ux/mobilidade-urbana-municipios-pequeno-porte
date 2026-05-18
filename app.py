@@ -25,6 +25,7 @@ from modules import (
     map_utils,
     metadata_manager,
     network_analysis as net,
+    od_balancing,
     od_matrix,
     odm_loader,
     osm_pois,
@@ -2200,6 +2201,9 @@ with tabs[7]:
         odm_detailed_df=_odm_detailed,
         odm_scenarios_compare=_odm_compare,
         social_cost_per_scenario=st.session_state.get("_social_cost_per_scenario"),
+        balancing_info=st.session_state.get("_balancing_info"),
+        production_df=st.session_state.get("_production_df"),
+        attraction_df=st.session_state.get("_attraction_df"),
     )
     try:
         _sig = inspect.signature(report_generator.build_markdown_report)
@@ -2413,10 +2417,12 @@ with tabs[9]:
     if "_rail_params" not in st.session_state:
         st.session_state._rail_params = rail_params.load_rail_params()
 
-    sub_tab1, sub_tab2, sub_tab3, sub_tab_odm, sub_tab4, sub_tab5 = st.tabs([
+    (sub_tab1, sub_tab2, sub_tab3, sub_tab_bal,
+     sub_tab_odm, sub_tab4, sub_tab5) = st.tabs([
         "📋 Bases",
         "👥 Populacao",
         "📈 Geracao de viagens",
+        "⚖️ Balanceamento OD",
         "🔢 Matriz OD detalhada",
         "🚂 Ferroviario",
         "💰 Tempo x Custo",
@@ -2701,6 +2707,193 @@ with tabs[9]:
 
         if "calibration_source" in st.session_state:
             st.info(f"📌 Ultima calibracao: **{st.session_state.calibration_source}**")
+
+    # ===== SUB BAL: BALANCEAMENTO OD (Modelo 4 Etapas) =====
+    with sub_tab_bal:
+        st.markdown("##### ⚖️ Balanceamento da Matriz OD (Modelo de 4 Etapas)")
+        st.caption(
+            "Importa **vetor de PRODUCAO** (origens) e **vetor de ATRACAO** "
+            "(destinos), aplica balanceamento ∑P = ∑A e atualiza os pesos das "
+            "zonas. Implementa as **Etapas 1 e 2** do modelo classico de "
+            "transportes (Geracao + Balanceamento) - a Etapa 3 (Distribuicao) "
+            "ocorre na aba 🔢 Matriz O-D via gravitacional e a Etapa 4 "
+            "(Alocacao) na aba 🚦 Alocacao Simplificada."
+        )
+
+        with st.expander("📖 Sobre o Modelo de 4 Etapas"):
+            st.markdown(
+                """
+                1. **Geracao de viagens**: producoes P_i (origens) e atracoes
+                   A_j (destinos) por zona - lidos das planilhas Excel/CSV.
+                2. **Balanceamento**: ajusta o vetor menor por um fator
+                   multiplicativo para garantir ∑P = ∑A.
+                3. **Distribuicao**: modelo gravitacional simplificado
+                   $T_{ij} = (G_i \\cdot A_j) / d_{ij}^{\\beta}$ - aba Matriz O-D.
+                4. **Repartição modal**: nesta versao assumimos **100% modo
+                   individual** (veiculos particulares) por simplificacao.
+                5. **Alocacao**: caminhos minimos na rede OSM (all-or-nothing)
+                   - aba Alocacao Simplificada.
+                """
+            )
+
+        col_v1, col_v2 = st.columns(2)
+
+        # Vetor de PRODUCAO
+        with col_v1:
+            st.markdown("**📤 Vetor de PRODUCAO (Origens)**")
+            st.caption("Arquivo: `Matriz Destino (Vetor Origem).xlsx`")
+            prod_path = od_balancing.find_production_file()
+            if prod_path:
+                st.success(f"✅ Encontrado: `{prod_path.name}`")
+            else:
+                st.warning("⚠️ Nao encontrado na pasta demo")
+
+            up_prod = st.file_uploader(
+                "Upload Vetor PRODUCAO (.xlsx ou .csv)",
+                type=["xlsx", "csv"],
+                key="up_prod_vec",
+            )
+            if up_prod:
+                ext = ".xlsx" if up_prod.name.lower().endswith(".xlsx") else ".csv"
+                dest = od_balancing.DEMO_DIR / f"matriz_origem{ext}"
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    with open(dest, "wb") as fh:
+                        fh.write(up_prod.getbuffer())
+                    st.success(f"Salvo em {dest.name}")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Falha: {exc}")
+
+        # Vetor de ATRACAO
+        with col_v2:
+            st.markdown("**📥 Vetor de ATRACAO (Destinos)**")
+            st.caption("Arquivo: `Matriz de Atração (Vetor de Destino).xlsx`")
+            attr_path = od_balancing.find_attraction_file()
+            if attr_path:
+                st.success(f"✅ Encontrado: `{attr_path.name}`")
+            else:
+                st.warning("⚠️ Nao encontrado na pasta demo")
+
+            up_attr = st.file_uploader(
+                "Upload Vetor ATRACAO (.xlsx ou .csv)",
+                type=["xlsx", "csv"],
+                key="up_attr_vec",
+            )
+            if up_attr:
+                ext = ".xlsx" if up_attr.name.lower().endswith(".xlsx") else ".csv"
+                dest = od_balancing.DEMO_DIR / f"matriz_destino{ext}"
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    with open(dest, "wb") as fh:
+                        fh.write(up_attr.getbuffer())
+                    st.success(f"Salvo em {dest.name}")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Falha: {exc}")
+
+        st.divider()
+
+        # Preview se ambos existem
+        if prod_path and attr_path:
+            with st.expander("👀 Preview dos vetores carregados"):
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    st.markdown("**Producao (origens)**")
+                    _df_p, _log_p = od_balancing.load_production_vector(prod_path)
+                    if _df_p is not None:
+                        st.dataframe(_df_p, use_container_width=True, hide_index=True)
+                    for l in _log_p:
+                        st.caption(l)
+                with col_p2:
+                    st.markdown("**Atracao (destinos)**")
+                    _df_a, _log_a = od_balancing.load_attraction_vector(attr_path)
+                    if _df_a is not None:
+                        st.dataframe(_df_a, use_container_width=True, hide_index=True)
+                    for l in _log_a:
+                        st.caption(l)
+
+            if st.button(
+                "⚖️ Executar balanceamento e aplicar nas zonas",
+                type="primary",
+                use_container_width=True,
+                key="btn_run_balancing",
+            ):
+                result = od_balancing.run_full_balancing_pipeline(
+                    st.session_state.zonas_df,
+                    prod_path,
+                    attr_path,
+                )
+                if not result["sucesso"]:
+                    st.error("❌ Falha no pipeline de balanceamento.")
+                    with st.expander("📋 Log completo", expanded=True):
+                        for line in result["log_consolidado"]:
+                            st.text(line)
+                else:
+                    # Aplica resultado
+                    st.session_state.zonas_df = result["zonas_df_atualizado"]
+                    st.session_state._balancing_info = result["balance_info"]
+                    st.session_state._production_df = result["production_df"]
+                    st.session_state._attraction_df = result["attraction_df"]
+                    st.session_state.calibration_source = (
+                        "Balanceamento ∑P=∑A (Modelo 4 etapas)"
+                    )
+                    # Invalida matriz O-D para recalculo
+                    st.session_state.od_result = None
+                    st.session_state.od_summary = None
+                    st.session_state.flow_records = []
+
+                    bal = result["balance_info"]
+                    st.success(
+                        f"✅ Balanceamento concluido. "
+                        f"∑P = ∑A = **{bal['sum_prod_balanced']:,.2f}**".replace(
+                            ",", "X").replace(".", ",").replace("X", ".")
+                    )
+
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        st.metric("∑P original", f"{bal['sum_prod_original']:,.0f}".replace(",", "."))
+                    with col_m2:
+                        st.metric("∑A original", f"{bal['sum_attr_original']:,.0f}".replace(",", "."))
+                    with col_m3:
+                        if bal["adjusted"]:
+                            st.metric(
+                                f"Fator aplicado ({'P' if bal['adjusted']=='production' else 'A'})",
+                                f"× {bal['factor']:.4f}",
+                            )
+                        else:
+                            st.metric("Fator aplicado", "1.0 (ja balanceado)")
+
+                    with st.expander("📋 Log completo do balanceamento", expanded=True):
+                        for line in result["log_consolidado"]:
+                            st.text(line)
+
+                    st.info(
+                        "💡 A matriz O-D foi invalidada. Va na aba 🔢 **Matriz O-D** "
+                        "e clique em **Recalcular** para aplicar o modelo gravitacional "
+                        "com os novos pesos balanceados (**Etapa 3 - Distribuicao**)."
+                    )
+
+        else:
+            st.info(
+                "📂 Faca upload dos DOIS arquivos para executar o balanceamento. "
+                "Aceita Excel (.xlsx) e CSV. Schema esperado: coluna de zona "
+                "(zona, zone_id, microzona, codigo...) + coluna numerica "
+                "(valor, viagens, producao, atracao, total)."
+            )
+
+        # Mostra resumo se ja foi balanceado nesta sessao
+        if "_balancing_info" in st.session_state:
+            st.divider()
+            bal = st.session_state._balancing_info
+            st.markdown("##### 📊 Ultimo balanceamento aplicado")
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                st.markdown(f"- **Fator:** × {bal['factor']:.4f}")
+                st.markdown(f"- **Vetor ajustado:** {bal.get('adjusted') or 'nenhum (ja balanceado)'}")
+            with col_b2:
+                st.markdown(f"- **∑P balanceado:** {bal['sum_prod_balanced']:,.2f}".replace(",", "."))
+                st.markdown(f"- **∑A balanceado:** {bal['sum_attr_balanced']:,.2f}".replace(",", "."))
 
     # ===== SUB ODM: MATRIZ OD DETALHADA =====
     with sub_tab_odm:
