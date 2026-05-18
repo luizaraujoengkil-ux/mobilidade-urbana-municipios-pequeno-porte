@@ -2452,7 +2452,11 @@ with tabs[9]:
             "populacao 2022, peso geracao, peso atracao) em um unico CSV. "
             "Campos em branco mantem o valor anterior."
         )
-        csv_consol_path = population_loader.ZONAS_CONSOLIDATED_CSV
+        from pathlib import Path as _PathClass
+        csv_consol_path = getattr(
+            population_loader, "ZONAS_CONSOLIDATED_CSV",
+            _PathClass("data/demo_matias_barbosa/zonas_atualizadas.csv"),
+        )
 
         col_cc1, col_cc2 = st.columns(2)
         with col_cc1:
@@ -2498,14 +2502,28 @@ with tabs[9]:
             disabled=not csv_consol_path.exists(),
             key="btn_apply_consol_csv",
         ):
-            new_zonas_df, log = population_loader.update_zones_from_csv(
+            _fn = getattr(population_loader, "update_zones_from_csv", None)
+            if _fn is None:
+                st.error(
+                    "Funcao update_zones_from_csv ainda nao disponivel "
+                    "(possivel cache do servidor). Aguarde alguns segundos "
+                    "e tente novamente, ou clique em '🔄 Tela inicial' na sidebar "
+                    "para reiniciar."
+                )
+                st.stop()
+            new_zonas_df, log = _fn(
                 st.session_state.zonas_df,
                 csv_consol_path,
             )
             # Atualiza session_state
             st.session_state.zonas_df = new_zonas_df
             # Exporta para os CSVs do population_loader (compat com calibracao)
-            population_loader.export_population_from_zones(new_zonas_df)
+            _export_fn = getattr(population_loader, "export_population_from_zones", None)
+            if _export_fn is not None:
+                try:
+                    _export_fn(new_zonas_df)
+                except Exception as _exc:
+                    print(f"[app] export_population_from_zones falhou: {_exc}")
             # Invalida matriz O-D para forcar recalculo
             st.session_state.od_result = None
             st.session_state.od_summary = None
