@@ -2177,6 +2177,7 @@ with tabs[7]:
         assignment_edges_df=_assign_edges,
         odm_detailed_df=_odm_detailed,
         odm_scenarios_compare=_odm_compare,
+        social_cost_per_scenario=st.session_state.get("_social_cost_per_scenario"),
     )
     try:
         _sig = inspect.signature(report_generator.build_markdown_report)
@@ -2935,6 +2936,84 @@ with tabs[9]:
             "dados locais (contagens, pesquisas O-D, valor do tempo regional)."
         )
         st.session_state._social_cost = res
+
+        # ===== COMPARATIVO POR CENARIO (se ha matriz OD detalhada) =====
+        st.divider()
+        st.markdown("##### 📊 Comparativo de custo por cenario")
+        st.caption(
+            "Compara o custo social do cenario BASE (cidade hoje, com "
+            "bloqueio das passagens de nivel) versus os cenarios com viaduto, "
+            "ponte ou nova ligacao - para decidir qual intervencao oferece "
+            "maior beneficio economico."
+        )
+
+        odm_for_cost = st.session_state.get("odm_detailed_df")
+        _fn_cost_sc = getattr(
+            rail_params, "compute_social_cost_per_scenario", None
+        )
+        if _fn_cost_sc is None:
+            st.info(
+                "🔄 Comparativo por cenario disponivel apos o redeploy "
+                "(modulo rail_params em cache)."
+            )
+        else:
+            try:
+                cost_table = _fn_cost_sc(rp, odm_for_cost)
+            except Exception as exc:
+                st.error(f"Erro ao calcular comparativo: {exc}")
+                cost_table = []
+
+            if cost_table:
+                df_cost = pd.DataFrame(cost_table)
+                # Formata colunas R$ para exibicao
+                df_disp = df_cost.copy()
+                for col in ("custo_diario_R$", "custo_anual_R$",
+                            "economia_vs_base_R$"):
+                    if col in df_disp.columns:
+                        df_disp[col] = df_disp[col].apply(
+                            lambda v: f"R$ {v:,.2f}".replace(",", "X")
+                                     .replace(".", ",").replace("X", ".")
+                            if isinstance(v, (int, float)) else v
+                        )
+                if "economia_pct" in df_disp.columns:
+                    df_disp["economia_pct"] = df_disp["economia_pct"].apply(
+                        lambda v: f"{v:.1f}%" if isinstance(v, (int, float)) else v
+                    )
+                st.dataframe(df_disp, use_container_width=True, hide_index=True)
+
+                # Identifica e destaca cenario com maior economia
+                if len(cost_table) > 1:
+                    best = max(
+                        (r for r in cost_table if r["cenario"] != "Base (hoje - sem intervencao)"),
+                        key=lambda r: r.get("economia_vs_base_R$", 0),
+                        default=None,
+                    )
+                    if best and best.get("economia_vs_base_R$", 0) > 0:
+                        eco_R = best["economia_vs_base_R$"]
+                        eco_pct = best["economia_pct"]
+                        st.success(
+                            f"🏆 **Cenario com maior economia:** {best['cenario']}  \n"
+                            f"💰 Economia anual estimada: **R$ {eco_R:,.2f}**".replace(
+                                ",", "X").replace(".", ",").replace("X", ".")
+                            + f"  ({eco_pct:.1f}% de reducao do custo social)"
+                        )
+
+                # Guarda no session_state para o relatorio
+                st.session_state._social_cost_per_scenario = cost_table
+            else:
+                st.info(
+                    "📂 Sem matriz O-D detalhada carregada. Vai na sub-aba "
+                    "**🔢 Matriz OD detalhada** para importar cenarios via CSV "
+                    "e calcular o custo por cenario."
+                )
+
+            if odm_for_cost is None:
+                st.caption(
+                    "💡 Quando voce carregar a matriz OD detalhada (CSV com "
+                    "`daily_blockage_minutes` por par O-D e cenarios "
+                    "`access_scenario`), aparece aqui a tabela completa de "
+                    "comparacao por cenario com a economia anual."
+                )
 
     # ===== Evolucoes futuras =====
     st.divider()

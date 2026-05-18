@@ -101,6 +101,136 @@ def compute_blocking_table(params: dict) -> list:
     return rows
 
 
+def compute_social_cost_per_scenario(params: dict, odm_df=None) -> list:
+    """Calcula custo social do bloqueio ferroviario POR CENARIO.
+
+    Se odm_df (matriz O-D detalhada) estiver presente:
+    - Usa daily_blockage_minutes do CENARIO BASE como referencia
+    - Para cada access_scenario != 'base', estima o custo apos a intervencao
+    - Calcula economia vs base em R$ e %
+
+    Se odm_df for None: retorna apenas o cenario base com os parametros
+    atuais (igual a compute_social_cost).
+
+    Logica para cenarios com intervencao:
+    - Se o CSV tem daily_blockage_minutes para o cenario, usa ele
+    - Senao, ASSUME que o viaduto elimina o bloqueio (bloqueio_cenario=0)
+      Isso da o cenario otimista (limite superior de economia)
+    """
+    try:
+        import pandas as pd
+    except ImportError:
+        return []
+
+    valor_h = float(params.get("valor_tempo_pessoa_hora", 0))
+    ocup = float(params.get("ocupacao_media_veiculo", 1.0))
+    dias = float(params.get("dias_por_ano", 365))
+    fluxo = float(params.get("fluxo_afetado_por_bloqueio", 0))
+    pessoas = fluxo * ocup
+
+    # Caso 1: sem matriz OD detalhada - so cenario base
+    if odm_df is None or (hasattr(odm_df, "empty") and odm_df.empty):
+        base_cost = compute_social_cost(params)
+        return [{
+            "cenario": "Base (hoje)",
+            "tempo_bloqueio_diario_min": base_cost["atraso_diario_min"],
+            "pessoas_afetadas": base_cost["pessoas_afetadas_por_bloqueio"],
+            "horas_perdidas_dia": round(
+                base_cost["pessoas_afetadas_por_bloqueio"]
+                * base_cost["tempo_bloqueio_referencia_min"] / 60.0
+                * float(params.get("passagens_por_dia", 1)), 2
+            ),
+            "custo_diario_R$": base_cost["custo_diario_R$"],
+            "custo_anual_R$": base_cost["custo_anual_R$"],
+            "economia_vs_base_R$": 0.0,
+            "economia_pct": 0.0,
+        }]
+
+    # Caso 2: com matriz OD detalhada
+    rows = []
+    base_pairs = odm_df[odm_df["access_scenario"].str.lower().eq("base")]
+    base_inter = base_pairs[base_pairs["origin_zone"] != base_pairs["destination_zone"]]
+    base_block_total = pd.to_numeric(
+        base_inter.get("daily_blockage_minutes"), errors="coerce"
+    ).dropna().sum() if "daily_blockage_minutes" in base_inter.columns else 0.0
+
+    # Se nao houver bloqueio no CSV, cai no calculo padrao do compute_social_cost
+    if base_block_total <= 0:
+        base_cost = compute_social_cost(params)
+        base_block_total = base_cost["atraso_diario_min"]
+
+    horas_perdidas_base = pessoas * (base_block_total / 60.0)
+    custo_diario_base = horas_perdidas_base * valor_h
+    custo_anual_base = custo_diario_base * dias
+
+    rows.append({
+        "cenario": "Base (hoje - sem intervencao)",
+        "tempo_bloqueio_diario_min": round(base_block_total, 1),
+        "pessoas_afetadas": round(pessoas, 1),
+        "horas_perdidas_dia": round(horas_perdidas_base, 2),
+        "custo_diario_R$": round(custo_diario_base, 2),
+        "custo_anual_R$": round(custo_anual_base, 2),
+        "economia_vs_base_R$": 0.0,
+        "economia_pct": 0.0,
+    })
+
+    # Cenarios de intervencao
+    scenarios = odm_df[~odm_df["access_scenario"].str.lower().eq("base")]
+    for sc_name in sorted(scenarios["access_scenario"].unique()):
+        sc_df = scenarios[scenarios["access_scenario"] == sc_name]
+        sc_inter = sc_df[sc_df["origin_zone"] != sc_df["destination_zone"]]
+
+        # Estrategia 1: usa daily_blockage_minutes do proprio cenario (se preenchido)
+        sc_block = pd.to_numeric(
+            sc_inter.get("daily_blockage_minutes"), errors="coerce"
+        ).dropna().sum() if "daily_blockage_minutes" in sc_inter.columns else 0.0
+
+        # Estrategia 2: se for 0, infere a partir da reducao de tempo
+        # bloqueio_cenario = bloqueio_base * (improved_time / base_time)
+        if sc_block <= 0:
+            ratio_total = 0.0
+            ratio_count = 0
+            for (orig, dest), row_sc in sc_inter.set_index(
+                ["origin_zone", "destination_zone"]
+            ).iterrows():
+                base_row = base_inter[
+                    (base_inter["origin_zone"] == orig) &
+                    (base_inter["destination_zone"] == dest)
+                ]
+                if base_row.empty:
+                    continue
+                base_t = pd.to_numeric(base_row["base_travel_time_min"], errors="coerce").iloc[0]
+                imp_t = pd.to_numeric(row_sc.get("improved_travel_time_min"), errors="coerce")
+                if pd.notna(base_t) and pd.notna(imp_t) and base_t > 0:
+                    ratio_total += (imp_t / base_t)
+                    ratio_count += 1
+            if ratio_count > 0:
+                ratio = ratio_total / ratio_count
+                sc_block = base_block_total * ratio
+            else:
+                # Sem dado especifico: viaduto elimina bloqueio
+                sc_block = 0.0
+
+        horas_perdidas_sc = pessoas * (sc_block / 60.0)
+        custo_diario_sc = horas_perdidas_sc * valor_h
+        custo_anual_sc = custo_diario_sc * dias
+        economia = custo_anual_base - custo_anual_sc
+        pct = (economia / custo_anual_base * 100) if custo_anual_base > 0 else 0.0
+
+        rows.append({
+            "cenario": f"Cenario: {sc_name}",
+            "tempo_bloqueio_diario_min": round(sc_block, 1),
+            "pessoas_afetadas": round(pessoas, 1),
+            "horas_perdidas_dia": round(horas_perdidas_sc, 2),
+            "custo_diario_R$": round(custo_diario_sc, 2),
+            "custo_anual_R$": round(custo_anual_sc, 2),
+            "economia_vs_base_R$": round(economia, 2),
+            "economia_pct": round(pct, 1),
+        })
+
+    return rows
+
+
 def compute_social_cost(params: dict, tempo_bloqueio_min_total: Optional[float] = None) -> dict:
     """Estima custo social a partir dos parametros.
 

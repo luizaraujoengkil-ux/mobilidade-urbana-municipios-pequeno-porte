@@ -34,6 +34,7 @@ def build_markdown_report(
     assignment_edges_df=None,           # opcional
     odm_detailed_df=None,               # opcional - matriz OD via CSV detalhado
     odm_scenarios_compare=None,         # opcional - comparativo base vs cenarios CSV
+    social_cost_per_scenario=None,      # opcional - lista de custos por cenario
 ) -> str:
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     out = StringIO()
@@ -124,6 +125,39 @@ def build_markdown_report(
         w(f"- **Custo anual estimado: R$ {social_cost.get('custo_anual_R$', '—')}**  \n")
         w(f"- Atraso anual estimado: **{social_cost.get('atraso_anual_horas', '—')} horas**  \n\n")
         w("> Valores exploratorios - dependem de calibracao com dados locais.\n\n")
+
+    if social_cost_per_scenario:
+        w("### Comparativo de custo social por cenario\n\n")
+        df_sc_cost = pd.DataFrame(social_cost_per_scenario)
+        # formata colunas R$
+        df_disp = df_sc_cost.copy()
+        for col in ("custo_diario_R$", "custo_anual_R$", "economia_vs_base_R$"):
+            if col in df_disp.columns:
+                df_disp[col] = df_disp[col].apply(
+                    lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(
+                        ".", ",").replace("X", ".")
+                    if isinstance(v, (int, float)) else v
+                )
+        if "economia_pct" in df_disp.columns:
+            df_disp["economia_pct"] = df_disp["economia_pct"].apply(
+                lambda v: f"{v:.1f}%" if isinstance(v, (int, float)) else v
+            )
+        w(_df_to_md(df_disp))
+        w("\n\n")
+        # Identifica o melhor cenario
+        non_base = [r for r in social_cost_per_scenario
+                    if not str(r.get("cenario", "")).lower().startswith("base")]
+        if non_base:
+            best_cost = max(non_base, key=lambda r: r.get("economia_vs_base_R$", 0))
+            if best_cost.get("economia_vs_base_R$", 0) > 0:
+                eco = best_cost["economia_vs_base_R$"]
+                pct = best_cost.get("economia_pct", 0)
+                w(f"- **Cenario com maior economia social:** "
+                  f"**{best_cost['cenario']}**  \n")
+                w(f"- **Economia anual estimada:** "
+                  f"R$ {eco:,.2f}".replace(",", "X").replace(
+                      ".", ",").replace("X", ".") +
+                  f" ({pct:.1f}% de reducao do custo social)\n\n")
 
     if odm_detailed_df is not None and not odm_detailed_df.empty:
         w("## 10. Matriz OD detalhada com atrasos e bloqueios\n\n")
