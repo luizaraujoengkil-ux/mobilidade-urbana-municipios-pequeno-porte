@@ -84,45 +84,45 @@ st.markdown(
         .legend-dot {display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: middle;}
         .disclaimer {background: #FFF8E1; color: #5D4037; border-left: 4px solid #F9A825; padding: 10px 14px; border-radius: 6px; font-size: 0.85rem; line-height: 1.45;}
         .disclaimer * {color: #5D4037 !important;}
-        /* === Estilo destacado das abas principais === */
+        /* === Estilo destacado das abas principais (compacto - cabe 10 abas) === */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 6px;
+            gap: 2px;
             background: linear-gradient(135deg, rgba(74,20,140,0.08) 0%, rgba(184,61,186,0.06) 100%);
-            padding: 8px 8px 0 8px;
-            border-radius: 12px 12px 0 0;
-            border-bottom: 3px solid #B83DBA;
+            padding: 4px 4px 0 4px;
+            border-radius: 8px 8px 0 0;
+            border-bottom: 2px solid #B83DBA;
+            flex-wrap: nowrap;
         }
         .stTabs [data-baseweb="tab"] {
-            font-weight: 700 !important;
-            font-size: 1.05rem !important;
-            padding: 14px 22px !important;
-            min-height: 56px;
-            border-radius: 10px 10px 0 0 !important;
+            font-weight: 600 !important;
+            font-size: 0.82rem !important;
+            padding: 7px 10px !important;
+            min-height: 38px;
+            border-radius: 6px 6px 0 0 !important;
             background: rgba(255,255,255,0.04);
             border: 1px solid transparent;
             color: #999 !important;
-            transition: all 0.18s ease-in-out;
-            letter-spacing: 0.3px;
+            transition: all 0.15s ease-in-out;
+            letter-spacing: 0.1px;
+            white-space: nowrap;
         }
         .stTabs [data-baseweb="tab"]:hover {
             background: rgba(184,61,186,0.18) !important;
             color: #FFFFFF !important;
-            transform: translateY(-2px);
             border-color: rgba(184,61,186,0.4);
-            box-shadow: 0 4px 12px rgba(184,61,186,0.18);
         }
         .stTabs [data-baseweb="tab"][aria-selected="true"] {
             background: linear-gradient(135deg, #4A148C 0%, #B83DBA 100%) !important;
             color: #FFFFFF !important;
             border-color: #4A148C;
-            box-shadow: 0 4px 14px rgba(74,20,140,0.45);
+            box-shadow: 0 2px 8px rgba(74,20,140,0.35);
         }
         .stTabs [data-baseweb="tab-highlight"] {
             background-color: #FFD740 !important;
-            height: 4px !important;
+            height: 3px !important;
         }
         .stTabs [data-baseweb="tab-panel"] {
-            padding-top: 18px;
+            padding-top: 12px;
         }
     </style>
     """,
