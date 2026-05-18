@@ -2157,7 +2157,11 @@ with tabs[7]:
             _odm_compare = odm_loader.compare_scenarios_csv(_odm_detailed)
         except Exception:
             _odm_compare = None
-    md = report_generator.build_markdown_report(
+    # Defensivo: alguns kwargs sao novos e podem nao estar na versao
+    # cacheada do report_generator no Streamlit Cloud. Filtramos via
+    # inspect para passar apenas os argumentos que a funcao aceita.
+    import inspect
+    _all_kwargs = dict(
         area_nome=area_nome_report,
         zonas_df=st.session_state.zonas_df,
         pontos_df=st.session_state.user_points,
@@ -2174,6 +2178,16 @@ with tabs[7]:
         odm_detailed_df=_odm_detailed,
         odm_scenarios_compare=_odm_compare,
     )
+    try:
+        _sig = inspect.signature(report_generator.build_markdown_report)
+        _accepted = set(_sig.parameters.keys())
+        _kwargs = {k: v for k, v in _all_kwargs.items() if k in _accepted}
+    except Exception:
+        # Fallback: chama so com os args originais (pre-extensoes)
+        _kwargs = {k: v for k, v in _all_kwargs.items()
+                   if k in {"area_nome", "zonas_df", "pontos_df", "od_matrix",
+                             "od_summary_df", "scenarios_compare", "best_scenario_row"}}
+    md = report_generator.build_markdown_report(**_kwargs)
 
     st.markdown(md, unsafe_allow_html=False)
 
