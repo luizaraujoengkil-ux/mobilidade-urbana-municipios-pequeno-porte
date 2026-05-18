@@ -191,7 +191,66 @@ representa restricao). Tambem e possivel marcar a aresta como bloqueio.
 ### Aba **Relatorio**
 - Resumo textual com area de estudo, zonas, pontos, matriz O-D resumida,
   cenarios e cenario mais vantajoso.
-- Download em **.md**, **.txt** e **.html**.
+- Download em **.md**, **.txt**, **.html** e **.pdf** (reportlab).
+- Inclui (quando disponiveis): status das bases, calibracao populacional,
+  parametros ferroviarios, custo social estimado e top trechos da
+  alocacao simplificada.
+
+### Aba **🚦 Alocacao Simplificada** (NOVO)
+Aloca os fluxos da matriz O-D nos caminhos minimos da rede viaria real
+(metodo all-or-nothing) para identificar trechos com maior carregamento
+potencial. Requer:
+- Malha viaria OSM carregada (sidebar)
+- Matriz O-D calculada (aba 🔢 Matriz O-D)
+- Zonas analiticas com centroides
+
+Apresenta:
+- Ranking dos top trechos mais carregados
+- Distribuicao de fluxo por classe (baixo / medio / alto)
+- Pares O-D sem caminho na rede (se houver)
+- Download CSV da alocacao
+
+> ⚠️ **Limitacao:** alocacao all-or-nothing nao considera capacidade nem
+> congestionamento. Para analise rigorosa, integre futuramente com
+> SUMO ou AequilibraE (placeholders em `modules/advanced_assignment.py`).
+
+### Aba **🔄 Atualizacao de Dados** (NOVO)
+Bloco central de **gestao da vida util dos dados**. 5 sub-abas:
+
+1. **📋 Bases:** tabela com status (atualizado / pendente / desatualizado)
+   de cada fonte (populacao, malha viaria, POIs, zonas, ferroviario...).
+   Botoes para verificar arquivos disponiveis, marcar como atualizado,
+   recalibrar modelo. Persistido em `data/demo_matias_barbosa/metadata.json`.
+
+2. **👥 Populacao:** upload de CSV com colunas `zona, populacao` para
+   bases **IPEA 2010** e **IBGE 2022**. Tabela comparativa 2010 vs 2022
+   com variacao percentual e peso de geracao sugerido. Se a base 2022
+   nao existir, mostra aviso e usa 2010 ou pesos manuais.
+
+3. **📈 Geracao de viagens:** calibracao dos pesos de geracao das zonas
+   a partir de populacao IPEA 2010, IBGE 2022, media ponderada ou pesos
+   manuais. Botao "Calibrar geracao de viagens" atualiza a tabela usada
+   na aba 🔢 Matriz O-D.
+
+4. **🚂 Ferroviario:** parametros editaveis (velocidade media,
+   comprimento dos trens, fator operacional). Calcula tempo fisico e
+   tempo de bloqueio por tipo de trem. Persistido em
+   `data/demo_matias_barbosa/rail_parameters.json`.
+
+5. **💰 Tempo x Custo:** estima atraso e custo social do bloqueio
+   ferroviario (pessoas afetadas, horas perdidas, custo diario e anual)
+   com base em valor do tempo, ocupacao media e fluxo afetado.
+
+### 🚀 Evolucoes futuras de simulacao
+A versao atual usa apenas **OSMnx + NetworkX** (alocacao all-or-nothing).
+A arquitetura ja preve integracao com ferramentas mais avancadas:
+- **SUMO** (https://www.eclipse.dev/sumo/): microssimulacao de trafego
+- **AequilibraE** (https://www.aequilibrae.com/): modelagem 4-step com
+  equilibrio
+
+Placeholders em `modules/advanced_assignment.py` (`export_to_sumo`,
+`export_to_aequilibrae`, `run_advanced_assignment`). **Nao sao
+dependencias obrigatorias** da versao atual.
 
 ---
 

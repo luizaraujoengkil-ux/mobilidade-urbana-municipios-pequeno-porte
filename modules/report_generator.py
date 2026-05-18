@@ -26,6 +26,12 @@ def build_markdown_report(
     od_summary_df: pd.DataFrame,
     scenarios_compare: pd.DataFrame,
     best_scenario_row,
+    metadata_bases: dict = None,        # opcional
+    calibration_source: str = None,     # opcional
+    rail_params_data: dict = None,      # opcional
+    rail_blocking_table: list = None,   # opcional
+    social_cost: dict = None,           # opcional
+    assignment_edges_df=None,           # opcional
 ) -> str:
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     out = StringIO()
@@ -78,7 +84,57 @@ def build_markdown_report(
     else:
         w("_Sem cenarios alternativos para comparar._\n\n")
 
-    w("## 7. Limitacoes do modelo\n\n")
+    # ----- Novas secoes opcionais (apenas se houver dados) -----
+    if metadata_bases:
+        w("## 7. Status das bases de dados\n\n")
+        rows_meta = []
+        for b in metadata_bases.get("bases", []):
+            rows_meta.append({
+                "Base": b.get("nome", b.get("id", "")),
+                "Fonte": b.get("fonte", ""),
+                "Ano": b.get("ano", "") or "",
+                "Ultima atualizacao": b.get("data_ultima_atualizacao", "") or "—",
+                "Status": b.get("status", ""),
+            })
+        if rows_meta:
+            df_m = pd.DataFrame(rows_meta)
+            w(_df_to_md(df_m))
+            w("\n\n")
+        if calibration_source:
+            w(f"**Calibracao da geracao de viagens:** {calibration_source}\n\n")
+
+    if rail_params_data is not None:
+        w("## 8. Parametros ferroviarios\n\n")
+        w(f"- **Velocidade media:** {rail_params_data.get('velocidade_media_kmh', '—')} km/h  \n")
+        w(f"- **Fator operacional de bloqueio:** {rail_params_data.get('fator_operacional_bloqueio', '—')}  \n")
+        w(f"- **Passagens por dia:** {rail_params_data.get('passagens_por_dia', '—')}  \n")
+        if rail_blocking_table:
+            w("\n### Calculo de tempo de bloqueio por tipo de trem\n\n")
+            w(_df_to_md(pd.DataFrame(rail_blocking_table)))
+            w("\n\n")
+
+    if social_cost:
+        w("## 9. Custo social do bloqueio ferroviario\n\n")
+        w(f"- Pessoas afetadas por bloqueio: **{social_cost.get('pessoas_afetadas_por_bloqueio', '—')}**  \n")
+        w(f"- Horas perdidas por bloqueio: **{social_cost.get('horas_perdidas_por_bloqueio', '—')}**  \n")
+        w(f"- Custo por bloqueio: **R$ {social_cost.get('custo_por_bloqueio_R$', '—')}**  \n")
+        w(f"- Custo diario estimado: **R$ {social_cost.get('custo_diario_R$', '—')}**  \n")
+        w(f"- **Custo anual estimado: R$ {social_cost.get('custo_anual_R$', '—')}**  \n")
+        w(f"- Atraso anual estimado: **{social_cost.get('atraso_anual_horas', '—')} horas**  \n\n")
+        w("> Valores exploratorios - dependem de calibracao com dados locais.\n\n")
+
+    if assignment_edges_df is not None and not assignment_edges_df.empty:
+        w("## 10. Alocacao simplificada na rede (top 10 trechos)\n\n")
+        cols = [c for c in ["nome_via", "highway", "comprimento_m",
+                            "fluxo_acumulado", "n_pares_od"]
+                if c in assignment_edges_df.columns]
+        w(_df_to_md(assignment_edges_df.head(10)[cols] if cols
+                    else assignment_edges_df.head(10)))
+        w("\n\n")
+        w("> Alocacao all-or-nothing - exploratoria. Nao substitui modelo de "
+          "trafego calibrado, contagens volumetricas ou simulacao microscopica.\n\n")
+
+    w("## 11. Limitacoes do modelo\n\n")
     w("- O modelo gravitacional utilizado e simplificado e usa distancia euclidiana ")
     w("(haversine) entre centroides de zona, nao representando capacidade viaria nem ")
     w("congestionamentos.\n")

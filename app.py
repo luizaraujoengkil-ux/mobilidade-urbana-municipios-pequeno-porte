@@ -18,15 +18,20 @@ from shapely.geometry import Point
 from streamlit_folium import st_folium
 
 from modules import (
+    advanced_assignment,
     data_loader,
     drawing as drawing_utils,
     geocode,
     map_utils,
+    metadata_manager,
     network_analysis as net,
     od_matrix,
     osm_pois,
+    population_loader,
+    rail_params,
     report_generator,
     scenario_analysis as scen,
+    traffic_assignment,
     validation,
 )
 from modules.config import (
@@ -658,6 +663,8 @@ tabs = st.tabs(
         "🛠️ Cenarios",
         "📊 Comparacao",
         "📑 Relatorio",
+        "🚦 Alocacao Simplificada",
+        "🔄 Atualizacao de Dados",
     ]
 )
 
@@ -2134,6 +2141,13 @@ with tabs[7]:
         or st.session_state.get("municipio_info", {}).get("display")
         or "Area de Estudo"
     )
+    # Dados opcionais do bloco de atualizacao (aba 9)
+    _rp = st.session_state.get("_rail_params")
+    _rail_table = rail_params.compute_blocking_table(_rp) if _rp else None
+    _assign_edges = (
+        st.session_state.get("assignment_result", {}).get("edges_df")
+        if "assignment_result" in st.session_state else None
+    )
     md = report_generator.build_markdown_report(
         area_nome=area_nome_report,
         zonas_df=st.session_state.zonas_df,
@@ -2142,6 +2156,12 @@ with tabs[7]:
         od_summary_df=od_sum if od_sum is not None else pd.DataFrame(),
         scenarios_compare=df_compare,
         best_scenario_row=best,
+        metadata_bases=st.session_state.get("_metadata"),
+        calibration_source=st.session_state.get("calibration_source"),
+        rail_params_data=_rp,
+        rail_blocking_table=_rail_table,
+        social_cost=st.session_state.get("_social_cost"),
+        assignment_edges_df=_assign_edges,
     )
 
     st.markdown(md, unsafe_allow_html=False)
@@ -2200,6 +2220,435 @@ with tabs[7]:
             )
         else:
             st.info("📕 PDF indisponivel - reportlab nao instalado neste ambiente. Use .html ou .md.")
+
+
+# ===========================================================================
+# ABA 8 - ALOCACAO SIMPLIFICADA (all-or-nothing na rede OSM)
+# ===========================================================================
+with tabs[8]:
+    st.subheader("🚦 Alocacao Simplificada dos Fluxos O-D na Rede")
+    st.caption(
+        "Aloca os fluxos da matriz O-D nos caminhos minimos da rede viaria "
+        "real para identificar trechos com maior carregamento potencial."
+    )
+
+    st.warning(
+        "⚠️ **Esta alocacao e exploratoria** (metodo 'all-or-nothing'). "
+        "Nao substitui modelo de trafego calibrado, contagens volumetricas "
+        "ou simulacao microscopica (SUMO/AequilibraE)."
+    )
+
+    osm_graph = st.session_state.get("osm_graph")
+    od_result = st.session_state.get("od_result")
+    zonas_gdf = st.session_state.layers.get("zonas")
+
+    col_a1, col_a2 = st.columns([2, 1])
+    with col_a1:
+        st.markdown("##### Pre-requisitos")
+        chk_osm = osm_graph is not None
+        chk_od = od_result is not None and not od_result.empty
+        chk_zonas = zonas_gdf is not None and not zonas_gdf.empty
+        st.markdown(
+            f"- {'✅' if chk_osm else '❌'} Malha viaria OSM carregada "
+            f"(sidebar → 'Baixar/atualizar')  \n"
+            f"- {'✅' if chk_od else '❌'} Matriz O-D calculada "
+            f"(aba 🔢 Matriz O-D → 'Recalcular')  \n"
+            f"- {'✅' if chk_zonas else '❌'} Zonas analiticas com centroides"
+        )
+    with col_a2:
+        run_assignment = st.button(
+            "🚀 Executar alocacao", type="primary",
+            use_container_width=True, key="btn_run_assignment",
+            disabled=not (chk_osm and chk_od and chk_zonas),
+        )
+
+    if run_assignment:
+        with st.spinner("Calculando caminhos minimos e alocando fluxos..."):
+            centroids = od_matrix.zone_centroids(zonas_gdf)
+            assignment_result = traffic_assignment.assign_od_to_network(
+                od_matrix=od_result,
+                zone_centroids_df=centroids,
+                osm_graph=osm_graph,
+            )
+            if assignment_result is None or assignment_result.get("edge_loads") is None:
+                st.error("Falha ao executar alocacao. Verifique se OSMnx esta funcional.")
+            else:
+                edges_df = traffic_assignment.classify_load_levels(
+                    assignment_result["edge_loads"]
+                )
+                st.session_state.assignment_result = {
+                    "edges_df": edges_df,
+                    "unreachable": assignment_result["unreachable"],
+                    "n_paths": len(assignment_result["paths"]),
+                }
+                st.success(f"✅ Alocacao concluida: {len(edges_df)} arestas carregadas, "
+                           f"{len(assignment_result['paths'])} caminhos calculados.")
+
+    # Apresenta resultados se houver
+    if "assignment_result" in st.session_state:
+        result = st.session_state.assignment_result
+        edges_df = result["edges_df"]
+
+        st.divider()
+        st.markdown("##### 🏆 Ranking - Trechos com maior carregamento potencial")
+        top_n = st.slider("Mostrar top N trechos:", 5, 50, 15, 5, key="top_edges_slider")
+        st.dataframe(
+            edges_df.head(top_n)[
+                ["nome_via", "highway", "comprimento_m",
+                 "fluxo_acumulado", "n_pares_od", "pares_od"]
+            ],
+            use_container_width=True,
+        )
+
+        st.markdown("##### 📊 Distribuicao de carregamento")
+        col_d1, col_d2, col_d3 = st.columns(3)
+        with col_d1:
+            st.metric("Arestas carregadas", len(edges_df))
+        with col_d2:
+            st.metric("Fluxo maximo (relativo)",
+                      f"{edges_df['fluxo_acumulado'].max():.2f}")
+        with col_d3:
+            st.metric("Pares O-D sem caminho", len(result["unreachable"]))
+
+        if result["unreachable"]:
+            with st.expander("⚠️ Pares O-D sem caminho na rede"):
+                st.write(", ".join(f"{o}→{d}" for o, d in result["unreachable"]))
+
+        csv_export = edges_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Baixar alocacao (CSV)", data=csv_export,
+            file_name="alocacao_simplificada.csv", mime="text/csv",
+        )
+    else:
+        if not (chk_osm and chk_od and chk_zonas):
+            st.info(
+                "📌 Complete os pre-requisitos acima antes de rodar a alocacao. "
+                "Se a rede nao estiver disponivel, a alocacao em rede esta indisponivel - "
+                "consulte a matriz O-D direta na aba 🔢 Matriz O-D."
+            )
+
+
+# ===========================================================================
+# ABA 9 - ATUALIZACAO DE DADOS (metadados, populacao, ferroviario, custo)
+# ===========================================================================
+with tabs[9]:
+    st.subheader("🔄 Atualizacao de Dados")
+    st.caption(
+        "Controle de versao das bases (populacao, malha viaria, POIs...), "
+        "parametros ferroviarios editaveis e calculos de custo social."
+    )
+
+    # ----- Carrega/garante metadata e rail_params -----
+    if "_metadata" not in st.session_state:
+        st.session_state._metadata = metadata_manager.load_metadata()
+    if "_rail_params" not in st.session_state:
+        st.session_state._rail_params = rail_params.load_rail_params()
+
+    sub_tab1, sub_tab2, sub_tab3, sub_tab4, sub_tab5 = st.tabs([
+        "📋 Bases",
+        "👥 Populacao",
+        "📈 Geracao de viagens",
+        "🚂 Ferroviario",
+        "💰 Tempo x Custo",
+    ])
+
+    # ===== SUB 1: BASES =====
+    with sub_tab1:
+        st.markdown("##### Bases controladas")
+        meta = st.session_state._metadata
+
+        # Avalia status atual de cada base
+        rows = []
+        for b in meta.get("bases", []):
+            status_eval = metadata_manager.evaluate_freshness(b) if b.get("data_ultima_atualizacao") else b.get("status", "pendente")
+            rows.append({
+                "ID": b["id"],
+                "Base": b["nome"],
+                "Fonte": b["fonte"],
+                "Ano": b.get("ano", "—") or "—",
+                "Ultima atualizacao": b.get("data_ultima_atualizacao") or "—",
+                "Validade (anos)": b.get("validade_anos", "—"),
+                "Responsavel": b.get("responsavel", "") or "—",
+                "Status": metadata_manager.STATUS_LABELS.get(status_eval, status_eval),
+                "Arquivo": b.get("arquivo", "") or "—",
+            })
+        df_meta = pd.DataFrame(rows)
+        st.dataframe(df_meta, use_container_width=True, hide_index=True)
+
+        st.markdown("##### Acoes")
+        col_act1, col_act2, col_act3 = st.columns(3)
+        with col_act1:
+            sel_id = st.selectbox(
+                "Base", options=[b["id"] for b in meta["bases"]],
+                format_func=lambda i: next(
+                    (b["nome"] for b in meta["bases"] if b["id"] == i), i
+                ),
+                key="sel_base_meta",
+            )
+        with col_act2:
+            sel_resp = st.text_input("Responsavel (opcional)", "", key="resp_meta")
+        with col_act3:
+            st.markdown("&nbsp;")
+            if st.button("✅ Marcar como atualizado",
+                         use_container_width=True, key="btn_meta_update"):
+                metadata_manager.mark_as_updated(sel_id, sel_resp)
+                st.session_state._metadata = metadata_manager.load_metadata()
+                st.success(f"Base '{sel_id}' marcada como atualizada hoje.")
+                st.rerun()
+
+        col_act4, col_act5 = st.columns(2)
+        with col_act4:
+            if st.button("🔍 Verificar dados disponiveis",
+                         use_container_width=True, key="btn_meta_verify"):
+                checks = []
+                for b in meta["bases"]:
+                    arq = b.get("arquivo", "")
+                    if arq:
+                        # checa se algum arquivo do padrao existe
+                        from pathlib import Path as _P
+                        demo = _P("data/demo_matias_barbosa")
+                        found = list(demo.glob(arq.split(",")[0].strip())) if arq else []
+                        checks.append(f"- {'✅' if found else '⚠️'} {b['nome']}: "
+                                      f"{len(found)} arquivo(s) encontrado(s)")
+                    else:
+                        checks.append(f"- ℹ️ {b['nome']}: sem arquivo fixo")
+                st.info("\n".join(checks))
+        with col_act5:
+            if st.button("🔁 Recalibrar modelo com dados atualizados",
+                         use_container_width=True, key="btn_meta_recal"):
+                st.session_state.base_graph = None
+                st.session_state.od_result = None
+                if "assignment_result" in st.session_state:
+                    del st.session_state.assignment_result
+                st.success("Modelo invalidado. Recalcule matriz O-D e cenarios.")
+
+    # ===== SUB 2: POPULACAO =====
+    with sub_tab2:
+        st.markdown("##### Bases populacionais")
+        st.caption("Aceita CSV com colunas: zona, populacao")
+
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            st.markdown("**IPEA 2010**")
+            up_2010 = st.file_uploader(
+                "Carregar populacao 2010", type=["csv"], key="up_pop_2010",
+            )
+            if up_2010:
+                try:
+                    df_up = pd.read_csv(up_2010)
+                    dest = population_loader.population_file_path(2010)
+                    df_up.to_csv(dest, index=False, encoding="utf-8")
+                    metadata_manager.mark_as_updated("populacao_ipea_2010")
+                    st.success(f"Salvo em {dest.name}")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Falha: {exc}")
+        with col_p2:
+            st.markdown("**IBGE 2022**")
+            up_2022 = st.file_uploader(
+                "Carregar populacao 2022", type=["csv"], key="up_pop_2022",
+            )
+            if up_2022:
+                try:
+                    df_up = pd.read_csv(up_2022)
+                    dest = population_loader.population_file_path(2022)
+                    df_up.to_csv(dest, index=False, encoding="utf-8")
+                    metadata_manager.mark_as_updated("populacao_ibge_2022")
+                    st.success(f"Salvo em {dest.name}")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Falha: {exc}")
+
+        pop_2010 = population_loader.load_population_demo(2010)
+        pop_2022 = population_loader.load_population_demo(2022)
+
+        if pop_2010 is None and pop_2022 is None:
+            st.info("📂 Nenhuma base populacional carregada ainda. "
+                    "Use os uploaders acima.")
+        else:
+            if pop_2022 is None:
+                st.warning("⚠️ Base populacional 2022 nao encontrada. "
+                           "O modelo utilizara populacao 2010 ou pesos manuais.")
+            elif pop_2010 is None:
+                st.info("ℹ️ Base populacional 2010 nao encontrada. "
+                        "Comparacao 2010 vs 2022 indisponivel.")
+
+            df_cmp = population_loader.compare_populations(pop_2010, pop_2022)
+            st.markdown("##### Comparativo populacional")
+            st.dataframe(df_cmp, use_container_width=True, hide_index=True)
+
+    # ===== SUB 3: GERACAO DE VIAGENS =====
+    with sub_tab3:
+        st.markdown("##### Geracao de viagens")
+        st.caption(
+            "Calibre os pesos de geracao das zonas a partir de populacao "
+            "IPEA 2010, IBGE 2022 ou manualmente."
+        )
+        pop_2010 = population_loader.load_population_demo(2010)
+        pop_2022 = population_loader.load_population_demo(2022)
+        options = ["Manter pesos manuais"]
+        if pop_2010 is not None: options.append("Populacao IPEA 2010")
+        if pop_2022 is not None: options.append("Populacao IBGE 2022")
+        if pop_2010 is not None and pop_2022 is not None:
+            options.append("Media ponderada 2010+2022")
+
+        opc = st.radio("Fonte de calibracao:", options, key="rad_calib_pop")
+
+        if st.button("🔁 Calibrar geracao de viagens",
+                     type="primary", use_container_width=True, key="btn_calib_pop"):
+            base_df = None
+            if opc == "Populacao IPEA 2010":
+                base_df = pop_2010
+            elif opc == "Populacao IBGE 2022":
+                base_df = pop_2022
+            elif opc.startswith("Media"):
+                # Mescla simples: media entre 2010 e 2022
+                merged = pop_2010.set_index("zona")["populacao"].rename("p10").to_frame()
+                merged["p22"] = pop_2022.set_index("zona")["populacao"]
+                merged["populacao"] = merged.mean(axis=1).round(0).astype(int)
+                base_df = merged.reset_index()[["zona", "populacao"]]
+            if base_df is not None:
+                st.session_state.zonas_df = population_loader.calibrate_weights_from_population(
+                    st.session_state.zonas_df, base_df
+                )
+                st.session_state.calibration_source = opc
+                st.success(
+                    f"✅ Pesos de geracao recalibrados com a base selecionada: **{opc}**. "
+                    "Confira a tabela na aba 🔢 Matriz O-D."
+                )
+
+        if "calibration_source" in st.session_state:
+            st.info(f"📌 Ultima calibracao: **{st.session_state.calibration_source}**")
+
+    # ===== SUB 4: FERROVIARIO =====
+    with sub_tab4:
+        st.markdown("##### Dados ferroviarios (editaveis)")
+        rp = st.session_state._rail_params
+
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            rp["velocidade_media_kmh"] = st.number_input(
+                "Velocidade media do trem (km/h)",
+                value=float(rp.get("velocidade_media_kmh", 55.0)),
+                min_value=10.0, max_value=200.0, step=5.0,
+            )
+        with col_f2:
+            rp["fator_operacional_bloqueio"] = st.number_input(
+                "Fator operacional de bloqueio",
+                value=float(rp.get("fator_operacional_bloqueio", 2.0)),
+                min_value=1.0, max_value=10.0, step=0.1,
+            )
+        with col_f3:
+            rp["passagens_por_dia"] = st.number_input(
+                "Passagens por dia",
+                value=float(rp.get("passagens_por_dia", 8.0)),
+                min_value=0.0, max_value=200.0, step=1.0,
+            )
+
+        st.markdown("##### Trens (edite para refletir a operacao local)")
+        df_trens = pd.DataFrame(rp.get("trens", []))
+        edited_trens = st.data_editor(
+            df_trens, num_rows="dynamic", use_container_width=True,
+            key="ed_trens",
+        )
+        rp["trens"] = edited_trens.to_dict("records")
+
+        st.markdown("##### Calculo de bloqueio")
+        df_block = pd.DataFrame(rail_params.compute_blocking_table(rp))
+        st.dataframe(df_block, use_container_width=True, hide_index=True)
+
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            if st.button("💾 Salvar parametros ferroviarios",
+                         type="primary", use_container_width=True,
+                         key="btn_save_rail"):
+                rail_params.save_rail_params(rp)
+                metadata_manager.mark_as_updated("dados_ferroviarios")
+                st.success("Parametros salvos em rail_parameters.json")
+                st.rerun()
+        with col_b2:
+            if st.button("↩️ Restaurar parametros padrao",
+                         use_container_width=True, key="btn_reset_rail"):
+                st.session_state._rail_params = rail_params.reset_to_default()
+                st.success("Parametros restaurados ao padrao")
+                st.rerun()
+
+    # ===== SUB 5: TEMPO x CUSTO =====
+    with sub_tab5:
+        st.markdown("##### Tempo x Custo Social")
+        st.caption(
+            "Estima atraso e custo social do bloqueio ferroviario com base "
+            "nos parametros configurados."
+        )
+        rp = st.session_state._rail_params
+
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            rp["valor_tempo_pessoa_hora"] = st.number_input(
+                "Valor do tempo (R$/pessoa/hora)",
+                value=float(rp.get("valor_tempo_pessoa_hora", 25.0)),
+                min_value=0.0, step=1.0,
+            )
+            rp["ocupacao_media_veiculo"] = st.number_input(
+                "Ocupacao media por veiculo (pessoas)",
+                value=float(rp.get("ocupacao_media_veiculo", 1.5)),
+                min_value=0.1, step=0.1,
+            )
+        with col_c2:
+            rp["fluxo_afetado_por_bloqueio"] = st.number_input(
+                "Fluxo afetado por bloqueio (veiculos)",
+                value=float(rp.get("fluxo_afetado_por_bloqueio", 80)),
+                min_value=0.0, step=10.0,
+            )
+            rp["dias_por_ano"] = st.number_input(
+                "Dias operacionais por ano",
+                value=int(rp.get("dias_por_ano", 365)),
+                min_value=1, max_value=366, step=1,
+            )
+
+        if st.button("💾 Salvar parametros de custo",
+                     use_container_width=True, key="btn_save_cost"):
+            rail_params.save_rail_params(rp)
+            metadata_manager.mark_as_updated("parametros_tempo_custo")
+            st.success("Parametros salvos")
+
+        st.markdown("##### Estimativa de impacto")
+        res = rail_params.compute_social_cost(rp)
+        col_r1, col_r2, col_r3 = st.columns(3)
+        with col_r1:
+            st.metric("Pessoas/bloqueio", f"{res['pessoas_afetadas_por_bloqueio']:.0f}")
+            st.metric("Horas perdidas/bloqueio", f"{res['horas_perdidas_por_bloqueio']:.2f}")
+        with col_r2:
+            st.metric("Custo/bloqueio", f"R$ {res['custo_por_bloqueio_R$']:.2f}")
+            st.metric("Custo diario", f"R$ {res['custo_diario_R$']:.2f}")
+        with col_r3:
+            st.metric("Custo anual", f"R$ {res['custo_anual_R$']:.2f}")
+            st.metric("Atraso anual (horas)", f"{res['atraso_anual_horas']:.0f}")
+
+        st.warning(
+            "⚠️ **Valores exploratorios** que dependem de calibracao com "
+            "dados locais (contagens, pesquisas O-D, valor do tempo regional)."
+        )
+        st.session_state._social_cost = res
+
+    # ===== Evolucoes futuras =====
+    st.divider()
+    with st.expander("🚀 Evolucoes futuras de simulacao"):
+        st.markdown(
+            "Em versoes futuras, este simulador pode ser integrado a "
+            "ferramentas abertas mais avancadas:"
+        )
+        for item in advanced_assignment.FUTURE_INTEGRATIONS:
+            st.markdown(
+                f"- **[{item['nome']}]({item['url']})** "
+                f"({item['complexidade']}) — {item['descricao']}  \n"
+                f"  Status atual: *{item['status_no_prototipo']}*"
+            )
+        st.info(
+            "Estas integracoes **nao sao dependencias obrigatorias** "
+            "da versao atual. A arquitetura ja preve placeholders em "
+            "`modules/advanced_assignment.py`."
+        )
 
 
 # ---------------------------------------------------------------------------
