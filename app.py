@@ -475,18 +475,40 @@ with st.sidebar:
 
     # ----- Deteccao AUTOMATICA de mudancas em KMZs da pasta -----
     # Comparamos a 'assinatura' atual da pasta (nome+mtime) com a guardada.
-    # Se mudou, recarrega silenciosamente sem o usuario precisar clicar.
+    # Se mudou, recarrega imediatamente e mostra banner visivel.
     _cur_sig = data_loader.kmz_folder_signature()
+    _just_reloaded = False
     if st.session_state.get("_kmz_signature") != _cur_sig:
-        # Primeira vez OU pasta mudou: recarrega
         if "_kmz_signature" in st.session_state:
-            # nao e a primeira vez: deve avisar o usuario
+            # nao e a primeira vez: realmente houve mudanca
             new_layers = data_loader.load_sample_layers()
             st.session_state.layers = new_layers
             st.session_state.zonas_df = od_matrix.default_zonas_dataframe(new_layers.get("zonas"))
             st.session_state.base_graph = None
-            st.toast("📂 Detectei mudancas na pasta de KMZs - camadas recarregadas.", icon="✅")
+            _just_reloaded = True
         st.session_state._kmz_signature = _cur_sig
+
+    if _just_reloaded:
+        st.success(
+            "📂 **Mudanca detectada na pasta de KMZs - camadas recarregadas automaticamente.**"
+        )
+
+    # ----- Painel diagnostico: KMZs detectados + zonas carregadas -----
+    with st.expander("📂 Estado dos KMZs detectados", expanded=False):
+        from pathlib import Path as _PathState
+        demo_dir = _PathState("data/demo_matias_barbosa")
+        if demo_dir.is_dir():
+            kmz_files = sorted(demo_dir.glob("*.kmz"))
+            st.caption(f"**{len(kmz_files)} arquivo(s) KMZ na pasta:**")
+            for kf in kmz_files:
+                st.caption(f"• `{kf.name}`")
+        # Zonas efetivamente carregadas (apos dissolve)
+        zonas_loaded = st.session_state.layers.get("zonas")
+        if zonas_loaded is not None and not zonas_loaded.empty and "zona" in zonas_loaded.columns:
+            zonas_codes = sorted(zonas_loaded["zona"].astype(str).unique().tolist())
+            st.caption(f"**Zonas carregadas no estudo:** {', '.join(zonas_codes)}")
+        else:
+            st.caption("**Zonas carregadas no estudo:** (nenhuma)")
 
     st.subheader("🎯 Modo de estudo")
     modo = st.radio(
