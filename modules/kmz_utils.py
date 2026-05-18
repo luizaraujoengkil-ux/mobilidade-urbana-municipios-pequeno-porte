@@ -272,9 +272,16 @@ def _find_points_in_kml(kml_text: str) -> list:
     if len(placemarks) == 0:
         placemarks = root.findall(".//Placemark")
     for pm in placemarks:
-        nome_el = pm.find(f"{_KML_NS}name") or pm.find("name")
+        # IMPORTANTE: usar 'is None' em vez de 'or' - ET.Element sem filhos
+        # eh considerado falsy mesmo tendo texto, o que fazia o 'or' cair
+        # no fallback e retornar None (perdia o nome com namespace).
+        nome_el = pm.find(f"{_KML_NS}name")
+        if nome_el is None:
+            nome_el = pm.find("name")
         nome = nome_el.text.strip() if (nome_el is not None and nome_el.text) else "(sem nome)"
-        desc_el = pm.find(f"{_KML_NS}description") or pm.find("description")
+        desc_el = pm.find(f"{_KML_NS}description")
+        if desc_el is None:
+            desc_el = pm.find("description")
         descricao = desc_el.text.strip() if (desc_el is not None and desc_el.text) else ""
 
         coord_el = pm.find(f"{_KML_NS}Point/{_KML_NS}coordinates")
