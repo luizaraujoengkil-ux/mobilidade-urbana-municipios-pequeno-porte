@@ -106,6 +106,144 @@ def compare_populations(df2010: pd.DataFrame, df2022: pd.DataFrame) -> pd.DataFr
     return df
 
 
+ZONAS_CONSOLIDATED_CSV = DEMO_DIR / "zonas_atualizadas.csv"
+
+
+def update_zones_from_csv(
+    zonas_df: pd.DataFrame,
+    csv_path: str | Path = ZONAS_CONSOLIDATED_CSV,
+) -> tuple[pd.DataFrame, list]:
+    """Atualiza atributos das zonas a partir de CSV consolidado.
+
+    Schema esperado:
+    - zone_name (Z1, Z2, ...)
+    - population_2010, population_2022
+    - weight_generation, weight_attraction
+    - primary_use, notes (opcionais)
+
+    Campos vazios sao MANTIDOS com o valor anterior. Cada modificacao
+    e registrada no log retornado.
+
+    Retorna (zonas_df_atualizado, log_de_mudancas).
+    """
+    log = []
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        log.append(f"[ERRO] Arquivo nao encontrado: {csv_path}")
+        return zonas_df, log
+    try:
+        df = pd.read_csv(csv_path, encoding="utf-8")
+    except UnicodeDecodeError:
+        try:
+            df = pd.read_csv(csv_path, encoding="latin-1")
+            log.append("[INFO] CSV lido com encoding latin-1 (nao era UTF-8).")
+        except Exception as exc:
+            log.append(f"[ERRO] Falha ao ler CSV: {exc}")
+            return zonas_df, log
+    except Exception as exc:
+        log.append(f"[ERRO] Falha ao ler CSV: {exc}")
+        return zonas_df, log
+
+    df.columns = [c.lower().strip() for c in df.columns]
+    log.append(f"[INFO] Colunas detectadas: {list(df.columns)}")
+
+    # mapeamento das colunas externas (CSV) -> internas (zonas_df)
+    col_zone = next((c for c in ("zone_name", "zona", "code") if c in df.columns), None)
+    if col_zone is None:
+        log.append("[ERRO] CSV sem coluna 'zone_name' (ou 'zona'/'code'). Abortando.")
+        return zonas_df, log
+
+    # se zonas_df nao tem colunas para pop 2010/2022, cria
+    out = zonas_df.copy()
+    for col in ("populacao_2010", "populacao_2022"):
+        if col not in out.columns:
+            out[col] = None
+
+    n_atualizadas = 0
+    for _, csv_row in df.iterrows():
+        zname = str(csv_row.get(col_zone, "")).strip().upper()
+        if not zname:
+            continue
+        zone_codes = out["zona"].astype(str).str.upper().str.strip()
+        mask = zone_codes == zname
+        if not mask.any():
+            log.append(f"[AVISO] Zona {zname} do CSV nao existe no estudo - ignorada.")
+            continue
+        idx = out.index[mask][0]
+
+        zone_log = []
+        def _apply(internal_col, csv_col, label, cast=float):
+            if csv_col not in df.columns:
+                return
+            val = csv_row.get(csv_col)
+            if pd.isna(val) or val == "" or val is None:
+                zone_log.append(f"{label} mantido (CSV vazio)")
+                return
+            try:
+                new_val = cast(val)
+            except (ValueError, TypeError):
+                zone_log.append(f"{label} invalido ({val!r}) - mantido")
+                return
+            old_val = out.loc[idx, internal_col] if internal_col in out.columns else None
+            out.loc[idx, internal_col] = new_val
+            zone_log.append(f"{label}: {old_val} -> {new_val}")
+
+        _apply("populacao_2010", "population_2010", "pop2010")
+        _apply("populacao_2022", "population_2022", "pop2022")
+        # populacao 'corrente' segue 2022 se existir, senao 2010
+        p22 = csv_row.get("population_2022")
+        p10 = csv_row.get("population_2010")
+        if not (pd.isna(p22) or p22 in (None, "")):
+            try:
+                out.loc[idx, "populacao"] = float(p22)
+            except Exception:
+                pass
+        elif not (pd.isna(p10) or p10 in (None, "")):
+            try:
+                out.loc[idx, "populacao"] = float(p10)
+            except Exception:
+                pass
+        _apply("geracao", "weight_generation", "geracao")
+        _apply("atracao", "weight_attraction", "atracao")
+
+        # campos texto opcionais
+        if "primary_use" in df.columns:
+            tipo = csv_row.get("primary_use")
+            if not (pd.isna(tipo) or tipo in (None, "")):
+                out.loc[idx, "tipo"] = str(tipo)
+                zone_log.append(f"tipo atualizado")
+        if "notes" in df.columns:
+            obs = csv_row.get("notes")
+            if not (pd.isna(obs) or obs in (None, "")):
+                out.loc[idx, "observacoes"] = str(obs)
+                zone_log.append(f"observacoes atualizadas")
+
+        if zone_log:
+            log.append(f"[{zname}] " + " | ".join(zone_log))
+            n_atualizadas += 1
+
+    log.append(f"[OK] {n_atualizadas} zona(s) atualizada(s) a partir do CSV.")
+    return out, log
+
+
+def export_population_from_zones(zonas_df: pd.DataFrame) -> None:
+    """Extrai colunas populacao_2010 / populacao_2022 do zonas_df e salva
+    nos CSVs do population_loader (compatibilidade com calibracao).
+    """
+    if zonas_df is None or zonas_df.empty:
+        return
+    if "populacao_2010" in zonas_df.columns:
+        df10 = zonas_df[["zona", "populacao_2010"]].dropna()
+        if not df10.empty:
+            df10 = df10.rename(columns={"populacao_2010": "populacao"})
+            save_population_csv(df10, 2010)
+    if "populacao_2022" in zonas_df.columns:
+        df22 = zonas_df[["zona", "populacao_2022"]].dropna()
+        if not df22.empty:
+            df22 = df22.rename(columns={"populacao_2022": "populacao"})
+            save_population_csv(df22, 2022)
+
+
 def calibrate_weights_from_population(
     zonas_df: pd.DataFrame,
     pop_df: pd.DataFrame,

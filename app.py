@@ -2445,7 +2445,92 @@ with tabs[9]:
 
     # ===== SUB 2: POPULACAO =====
     with sub_tab2:
-        st.markdown("##### Bases populacionais")
+        # ===== Bloco: CSV consolidado de zonas =====
+        st.markdown("##### 📁 CSV consolidado de zonas (atualizacao em lote)")
+        st.caption(
+            "Atualize TODOS os atributos de Z1, Z2, Z3, Z4 (populacao 2010, "
+            "populacao 2022, peso geracao, peso atracao) em um unico CSV. "
+            "Campos em branco mantem o valor anterior."
+        )
+        csv_consol_path = population_loader.ZONAS_CONSOLIDATED_CSV
+
+        col_cc1, col_cc2 = st.columns(2)
+        with col_cc1:
+            up_consol = st.file_uploader(
+                "Upload zonas_atualizadas.csv",
+                type=["csv"],
+                key="up_zonas_csv",
+                help="Schema: zone_name, population_2010, population_2022, "
+                     "weight_generation, weight_attraction, primary_use, notes",
+            )
+            if up_consol:
+                try:
+                    csv_consol_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(csv_consol_path, "wb") as fh:
+                        fh.write(up_consol.getbuffer())
+                    st.success(f"Salvo em {csv_consol_path.name}. "
+                               "Clique em 'Aplicar' ao lado.")
+                except Exception as exc:
+                    st.error(f"Falha ao salvar: {exc}")
+
+        with col_cc2:
+            st.markdown(
+                "📄 Arquivo padrao: `data/demo_matias_barbosa/zonas_atualizadas.csv`"
+            )
+            if csv_consol_path.exists():
+                st.success(f"✅ Existe ({csv_consol_path.stat().st_size} bytes)")
+                # link para download do template/atual
+                with open(csv_consol_path, "rb") as fh:
+                    st.download_button(
+                        "⬇️ Baixar CSV atual",
+                        data=fh.read(),
+                        file_name="zonas_atualizadas.csv",
+                        mime="text/csv",
+                        key="dl_zonas_csv",
+                    )
+            else:
+                st.warning("⚠️ Arquivo nao encontrado. Faca upload ao lado.")
+
+        if st.button(
+            "🔁 Aplicar CSV consolidado nas zonas",
+            type="primary",
+            use_container_width=True,
+            disabled=not csv_consol_path.exists(),
+            key="btn_apply_consol_csv",
+        ):
+            new_zonas_df, log = population_loader.update_zones_from_csv(
+                st.session_state.zonas_df,
+                csv_consol_path,
+            )
+            # Atualiza session_state
+            st.session_state.zonas_df = new_zonas_df
+            # Exporta para os CSVs do population_loader (compat com calibracao)
+            population_loader.export_population_from_zones(new_zonas_df)
+            # Invalida matriz O-D para forcar recalculo
+            st.session_state.od_result = None
+            st.session_state.od_summary = None
+            st.session_state.flow_records = []
+            st.session_state.calibration_source = (
+                "CSV consolidado (zonas_atualizadas.csv)"
+            )
+            # Marca metadata
+            try:
+                metadata_manager.mark_as_updated("populacao_ipea_2010")
+                metadata_manager.mark_as_updated("populacao_ibge_2022")
+            except Exception:
+                pass
+            st.success("✅ Base de zonas atualizada com sucesso a partir do CSV consolidado.")
+            with st.expander("📋 Log de mudancas detalhado", expanded=True):
+                for line in log:
+                    st.text(line)
+            st.info(
+                "💡 A matriz O-D foi invalidada. Va na aba 🔢 **Matriz O-D** "
+                "e clique em **Recalcular** para refletir os novos pesos."
+            )
+
+        st.divider()
+
+        st.markdown("##### Bases populacionais (upload separado)")
         st.caption("Aceita CSV com colunas: zona, populacao")
 
         col_p1, col_p2 = st.columns(2)
