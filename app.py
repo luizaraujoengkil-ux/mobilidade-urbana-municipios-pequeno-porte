@@ -441,11 +441,46 @@ with st.sidebar:
 
     mode_label = "🎓 Demonstracao" if st.session_state.study_mode == "demo" else "🌍 Novo estudo"
     st.caption(f"Modo atual: **{mode_label}**")
-    if st.button("🔄 Voltar a tela inicial / Resetar", use_container_width=True, key="btn_reset_app"):
-        # limpa estado para a tela de escolha re-aparecer
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
-        st.rerun()
+    col_btns_a, col_btns_b = st.columns(2)
+    with col_btns_a:
+        if st.button("🔄 Tela inicial", use_container_width=True,
+                     help="Volta a tela de escolha e limpa todo o estado",
+                     key="btn_reset_app"):
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.rerun()
+    with col_btns_b:
+        if st.button("📂 Recarregar KMZs", use_container_width=True,
+                     help="Releia a pasta data/demo_matias_barbosa/ - "
+                          "use depois de adicionar/editar KMZs",
+                     key="btn_reload_kmz"):
+            # Recarrega camadas demo sem perder cenarios/pontos do usuario
+            new_layers = data_loader.load_sample_layers()
+            st.session_state.layers = new_layers
+            st.session_state.zonas_df = od_matrix.default_zonas_dataframe(new_layers.get("zonas"))
+            st.session_state.base_graph = None  # forca rebuild do grafo
+            st.session_state._kmz_signature = data_loader.kmz_folder_signature()
+            n_layers = sum(
+                1 for v in new_layers.values()
+                if v is not None and hasattr(v, "empty") and not v.empty
+            )
+            st.success(f"✅ {n_layers}/{len(new_layers)} camadas recarregadas da pasta.")
+            st.rerun()
+
+    # ----- Deteccao AUTOMATICA de mudancas em KMZs da pasta -----
+    # Comparamos a 'assinatura' atual da pasta (nome+mtime) com a guardada.
+    # Se mudou, recarrega silenciosamente sem o usuario precisar clicar.
+    _cur_sig = data_loader.kmz_folder_signature()
+    if st.session_state.get("_kmz_signature") != _cur_sig:
+        # Primeira vez OU pasta mudou: recarrega
+        if "_kmz_signature" in st.session_state:
+            # nao e a primeira vez: deve avisar o usuario
+            new_layers = data_loader.load_sample_layers()
+            st.session_state.layers = new_layers
+            st.session_state.zonas_df = od_matrix.default_zonas_dataframe(new_layers.get("zonas"))
+            st.session_state.base_graph = None
+            st.toast("📂 Detectei mudancas na pasta de KMZs - camadas recarregadas.", icon="✅")
+        st.session_state._kmz_signature = _cur_sig
 
     st.subheader("🎯 Modo de estudo")
     modo = st.radio(

@@ -60,54 +60,70 @@ def _load_area_estudo() -> Optional[gpd.GeoDataFrame]:
 
 
 def _load_ferrovia() -> Optional[gpd.GeoDataFrame]:
-    """Carrega a ferrovia. Prefere KMZ real se existir.
+    """Carrega a ferrovia. Prefere KMZ real (le TODOS os arquivos que casam).
 
-    Procura por arquivos KMZ na pasta demo com prefixos:
-    'ferrovia', 'linha_do_trem', 'linha_ferrea', 'trem'.
+    Aceita multiplos KMZs (ex: 'linha_do_trem_norte.kmz' +
+    'linha_do_trem_sul.kmz') - todos sao concatenados.
+
     Fallback: data/demo_matias_barbosa/ferrovia.geojson.
     """
     geojson_path = DEMO_DIR / "ferrovia.geojson"
-    kmz_path = kmz_utils.find_kmz_by_prefixes(
+    kmz_paths = kmz_utils.find_all_kmzs_by_prefixes(
         DEMO_DIR,
         prefixes=["ferrovia", "linha_do_trem", "linha_ferrea", "linha-ferrea",
                   "linha_trem", "trem", "railway"],
     )
-    if kmz_path is not None:
-        gdf = kmz_utils.load_lines_from_kmz(
-            kmz_path,
-            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
-            default_name="Linha do Trem",
-        )
-        if gdf is not None and not gdf.empty:
-            return gdf
-        print(f"[data_loader] KMZ da ferrovia em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+    if kmz_paths:
+        frames = []
+        for kp in kmz_paths:
+            part = kmz_utils.load_lines_from_kmz(kp, default_name="Linha do Trem")
+            if part is not None and not part.empty:
+                frames.append(part)
+        if frames:
+            return gpd.GeoDataFrame(
+                pd.concat(frames, ignore_index=True),
+                crs=frames[0].crs or "EPSG:4326",
+            )
+        print(f"[data_loader] KMZ da ferrovia em {kmz_paths} nao pode ser lido. Usando GeoJSON.")
     return _safe_read(geojson_path)
 
 
 def _load_rodovias() -> Optional[gpd.GeoDataFrame]:
-    """Carrega as rodovias (BR-040, MG-353, Uniao Industria...).
+    """Carrega as rodovias (BR-040, MG-353, Uniao Industria + ligacoes).
 
-    Prefere KMZ real se existir. Procura por prefixos:
-    'rodovias', 'rodovia', 'br_040', 'br040', 'br-040', 'mg_353', 'mg353',
-    'uniao_industria', 'uniao-industria'.
+    Le TODOS os arquivos KMZ que casam com os prefixos da camada
+    rodoviaria e concatena em um unico GeoDataFrame. Permite combinar:
+    - 'Rodovias (BR-040, MG-353, Uniao Industria).kmz'
+    - 'Ligacao rodovia estadual 1.kmz' / 'Ligacao rodovia estadual 2.kmz'
+    - 'BR_040.kmz', 'MG_353.kmz', etc.
+
     Fallback: data/demo_matias_barbosa/rodovias.geojson.
     """
     geojson_path = DEMO_DIR / "rodovias.geojson"
-    kmz_path = kmz_utils.find_kmz_by_prefixes(
+    kmz_paths = kmz_utils.find_all_kmzs_by_prefixes(
         DEMO_DIR,
-        prefixes=["rodovias", "rodovia", "br_040", "br040", "br-040",
-                  "mg_353", "mg353", "mg-353",
-                  "uniao_industria", "uniao-industria", "uniaoindustria"],
+        prefixes=[
+            "rodovias", "rodovia",
+            "br_040", "br040", "br-040",
+            "mg_353", "mg353", "mg-353",
+            "uniao_industria", "uniao-industria", "uniaoindustria",
+            # ligacoes rodoviarias adicionais (rod. estadual, municipal etc.)
+            "ligacao", "ligacao_rodovia", "ligacao_rodoviaria",
+            "eixo_viario", "via_principal",
+        ],
     )
-    if kmz_path is not None:
-        gdf = kmz_utils.load_lines_from_kmz(
-            kmz_path,
-            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
-            default_name="Rodovia",
-        )
-        if gdf is not None and not gdf.empty:
-            return gdf
-        print(f"[data_loader] KMZ de rodovias em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+    if kmz_paths:
+        frames = []
+        for kp in kmz_paths:
+            part = kmz_utils.load_lines_from_kmz(kp, default_name="Rodovia")
+            if part is not None and not part.empty:
+                frames.append(part)
+        if frames:
+            return gpd.GeoDataFrame(
+                pd.concat(frames, ignore_index=True),
+                crs=frames[0].crs or "EPSG:4326",
+            )
+        print(f"[data_loader] KMZ de rodovias em {kmz_paths} nao pode ser lido. Usando GeoJSON.")
     return _safe_read(geojson_path)
 
 
@@ -231,26 +247,49 @@ def _load_pontos_viaduto() -> Optional[gpd.GeoDataFrame]:
 
 
 def _load_pontos_interesse() -> Optional[gpd.GeoDataFrame]:
-    """Carrega os pontos de interesse. Prefere KMZ real."""
+    """Carrega os pontos de interesse. Prefere KMZ real (le multiplos)."""
     geojson_path = DEMO_DIR / "pontos_interesse.geojson"
-    kmz_path = kmz_utils.find_kmz_by_prefixes(
+    kmz_paths = kmz_utils.find_all_kmzs_by_prefixes(
         DEMO_DIR,
         prefixes=[
             "pontos_interesse", "pontos_de_interesse", "poi", "pois",
             "interesse", "pontos_relevantes",
         ],
     )
-    if kmz_path is not None:
-        gdf = kmz_utils.load_points_from_kmz(
-            kmz_path,
-            fallback_to_geojson=geojson_path if geojson_path.exists() else None,
-        )
-        if gdf is not None and not gdf.empty:
+    if kmz_paths:
+        frames = []
+        for kp in kmz_paths:
+            part = kmz_utils.load_points_from_kmz(kp)
+            if part is not None and not part.empty:
+                frames.append(part)
+        if frames:
+            gdf = gpd.GeoDataFrame(
+                pd.concat(frames, ignore_index=True),
+                crs=frames[0].crs or "EPSG:4326",
+            )
             if "categoria" not in gdf.columns:
                 gdf["categoria"] = "Outro"
             return gdf
-        print(f"[data_loader] KMZ de POIs em {kmz_path} nao pode ser lido. Usando GeoJSON.")
+        print(f"[data_loader] KMZ(s) de POIs em {kmz_paths} nao pode(m) ser lido(s). Usando GeoJSON.")
     return _safe_read(geojson_path)
+
+
+def kmz_folder_signature() -> str:
+    """Retorna 'assinatura' (nome+mtime de cada .kmz) da pasta demo.
+
+    Usado para detectar automaticamente novos arquivos ou edicoes,
+    forcando reload das camadas sem o usuario precisar resetar o app.
+    """
+    from pathlib import Path as _P
+    parts = []
+    if DEMO_DIR.is_dir():
+        for entry in sorted(DEMO_DIR.iterdir()):
+            if entry.is_file() and entry.name.lower().endswith(".kmz"):
+                try:
+                    parts.append(f"{entry.name}:{int(entry.stat().st_mtime)}")
+                except Exception:
+                    parts.append(entry.name)
+    return "|".join(parts)
 
 
 def load_sample_layers() -> dict:
