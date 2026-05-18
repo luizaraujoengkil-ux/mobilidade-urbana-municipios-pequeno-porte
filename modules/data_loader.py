@@ -220,6 +220,7 @@ def _load_pontos_viaduto() -> Optional[gpd.GeoDataFrame]:
     usuario desenhou linhas no Google Earth para representar viadutos.
     """
     geojson_path = DEMO_DIR / "pontos_viaduto.geojson"
+    # Prefixos de viaduto 'puros' (Points originais)
     kmz_paths = kmz_utils.find_all_kmzs_by_prefixes(
         DEMO_DIR,
         prefixes=[
@@ -228,21 +229,43 @@ def _load_pontos_viaduto() -> Optional[gpd.GeoDataFrame]:
             "ponto_de_estudo", "pontos_estudo", "ponto_viaduto",
         ],
     )
-    if kmz_paths:
+    # KMZ de LIGACOES (LineString) - cada linha vira um Point no seu centroide
+    # e entra como ponto de estudo de viaduto adicional
+    kmz_ligacoes = kmz_utils.find_all_kmzs_by_prefixes(
+        DEMO_DIR,
+        prefixes=["ligacao", "ligacao_rodovia", "ligacao_rodoviaria"],
+    )
+
+    if kmz_paths or kmz_ligacoes:
         frames = []
         for kp in kmz_paths:
             part = kmz_utils.load_points_from_kmz(kp, accept_lines_as_points=True)
             if part is not None and not part.empty:
+                frames.append(part)
+        # Ligacoes: converte linhas em pontos (centroide) e adiciona como
+        # 'Nova ligacao viaria' (categoria distinta para diferenciar visualmente)
+        for kp in kmz_ligacoes:
+            part = kmz_utils.load_points_from_kmz(kp, accept_lines_as_points=True)
+            if part is not None and not part.empty:
+                # Marca como categoria de nova ligacao (cor/icone diferente)
+                if "categoria" not in part.columns:
+                    part["categoria"] = "Nova ligacao viaria"
+                else:
+                    part["categoria"] = part["categoria"].fillna("Nova ligacao viaria")
                 frames.append(part)
         if frames:
             gdf = gpd.GeoDataFrame(
                 pd.concat(frames, ignore_index=True),
                 crs=frames[0].crs or "EPSG:4326",
             )
+            # Categoria padrao para os que nao tem (vindos de viaduto puro)
             if "categoria" not in gdf.columns:
                 gdf["categoria"] = "Estudo de viaduto"
+            else:
+                gdf["categoria"] = gdf["categoria"].fillna("Estudo de viaduto")
             return gdf
-        print(f"[data_loader] KMZ(s) de viaduto em {kmz_paths} nao pode(m) ser lido(s). Usando GeoJSON.")
+        print(f"[data_loader] KMZ(s) de viaduto/ligacao em {kmz_paths + kmz_ligacoes} "
+              f"nao pode(m) ser lido(s). Usando GeoJSON.")
     return _safe_read(geojson_path)
 
 
