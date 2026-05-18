@@ -107,6 +107,22 @@ def compare_populations(df2010: pd.DataFrame, df2022: pd.DataFrame) -> pd.DataFr
 
 
 ZONAS_CONSOLIDATED_CSV = DEMO_DIR / "zonas_atualizadas.csv"
+# Nomes alternativos aceitos (preserva compatibilidade entre versoes do template)
+ZONAS_CSV_NAMES = [
+    "zonas_atualizadas.csv",
+    "zonas_template_matias_barbosa.csv",
+    "zonas_template.csv",
+    "zonas.csv",
+]
+
+
+def find_zones_csv() -> Optional[Path]:
+    """Procura o CSV consolidado de zonas usando varios nomes possiveis."""
+    for name in ZONAS_CSV_NAMES:
+        path = DEMO_DIR / name
+        if path.exists():
+            return path
+    return None
 
 
 def update_zones_from_csv(

@@ -1,0 +1,17 @@
+origin_zone,destination_zone,base_distance_km,base_travel_time_min,road_crossings_count,rail_crossings_count,daily_blockage_minutes,delay_per_trip_min,improved_distance_km,improved_travel_time_min,access_scenario,notes
+Z1,Z1,,,,,,,,,base,Sem deslocamento intrazonal
+Z1,Z2,,,,,,,,,base,De Centro/Nucleo urbano a Area urbana sudeste
+Z1,Z3,,,,,,,,,base,De Centro/Nucleo urbano a Areas residenciais dispersas
+Z1,Z4,,,,,,,,,base,De Centro/Nucleo urbano a Area industrial/logistica
+Z2,Z1,,,,,,,,,base,De Area urbana sudeste a Centro/Nucleo urbano
+Z2,Z2,,,,,,,,,base,Sem deslocamento intrazonal
+Z2,Z3,,,,,,,,,base,De Area urbana sudeste a Areas residenciais dispersas
+Z2,Z4,,,,,,,,,base,De Area urbana sudeste a Area industrial/logistica
+Z3,Z1,,,,,,,,,base,De Areas residenciais dispersas a Centro/Nucleo urbano
+Z3,Z2,,,,,,,,,base,De Areas residenciais dispersas a Area urbana sudeste
+Z3,Z3,,,,,,,,,base,Sem deslocamento intrazonal
+Z3,Z4,,,,,,,,,base,De Areas residenciais dispersas a Area industrial/logistica
+Z4,Z1,,,,,,,,,base,De Area industrial/logistica a Centro/Nucleo urbano
+Z4,Z2,,,,,,,,,base,De Area industrial/logistica a Area urbana sudeste
+Z4,Z3,,,,,,,,,base,De Area industrial/logistica a Areas residenciais dispersas
+Z4,Z4,,,,,,,,,base,Sem deslocamento intrazonal

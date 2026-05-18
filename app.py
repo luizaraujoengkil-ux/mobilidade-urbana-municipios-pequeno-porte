@@ -26,6 +26,7 @@ from modules import (
     metadata_manager,
     network_analysis as net,
     od_matrix,
+    odm_loader,
     osm_pois,
     population_loader,
     rail_params,
@@ -2148,6 +2149,14 @@ with tabs[7]:
         st.session_state.get("assignment_result", {}).get("edges_df")
         if "assignment_result" in st.session_state else None
     )
+    # Matriz OD detalhada (do CSV)
+    _odm_detailed = st.session_state.get("odm_detailed_df")
+    _odm_compare = None
+    if _odm_detailed is not None and not _odm_detailed.empty:
+        try:
+            _odm_compare = odm_loader.compare_scenarios_csv(_odm_detailed)
+        except Exception:
+            _odm_compare = None
     md = report_generator.build_markdown_report(
         area_nome=area_nome_report,
         zonas_df=st.session_state.zonas_df,
@@ -2162,6 +2171,8 @@ with tabs[7]:
         rail_blocking_table=_rail_table,
         social_cost=st.session_state.get("_social_cost"),
         assignment_edges_df=_assign_edges,
+        odm_detailed_df=_odm_detailed,
+        odm_scenarios_compare=_odm_compare,
     )
 
     st.markdown(md, unsafe_allow_html=False)
@@ -2365,10 +2376,11 @@ with tabs[9]:
     if "_rail_params" not in st.session_state:
         st.session_state._rail_params = rail_params.load_rail_params()
 
-    sub_tab1, sub_tab2, sub_tab3, sub_tab4, sub_tab5 = st.tabs([
+    sub_tab1, sub_tab2, sub_tab3, sub_tab_odm, sub_tab4, sub_tab5 = st.tabs([
         "📋 Bases",
         "👥 Populacao",
         "📈 Geracao de viagens",
+        "🔢 Matriz OD detalhada",
         "🚂 Ferroviario",
         "💰 Tempo x Custo",
     ])
@@ -2453,10 +2465,19 @@ with tabs[9]:
             "Campos em branco mantem o valor anterior."
         )
         from pathlib import Path as _PathClass
-        csv_consol_path = getattr(
-            population_loader, "ZONAS_CONSOLIDATED_CSV",
-            _PathClass("data/demo_matias_barbosa/zonas_atualizadas.csv"),
-        )
+        # Procura por qualquer um dos nomes aceitos
+        _find_fn = getattr(population_loader, "find_zones_csv", None)
+        if _find_fn is not None:
+            _found = _find_fn()
+            csv_consol_path = _found if _found is not None else getattr(
+                population_loader, "ZONAS_CONSOLIDATED_CSV",
+                _PathClass("data/demo_matias_barbosa/zonas_atualizadas.csv"),
+            )
+        else:
+            csv_consol_path = getattr(
+                population_loader, "ZONAS_CONSOLIDATED_CSV",
+                _PathClass("data/demo_matias_barbosa/zonas_atualizadas.csv"),
+            )
 
         col_cc1, col_cc2 = st.columns(2)
         with col_cc1:
@@ -2643,6 +2664,152 @@ with tabs[9]:
 
         if "calibration_source" in st.session_state:
             st.info(f"📌 Ultima calibracao: **{st.session_state.calibration_source}**")
+
+    # ===== SUB ODM: MATRIZ OD DETALHADA =====
+    with sub_tab_odm:
+        st.markdown("##### 🔢 Matriz OD detalhada (com travessias, bloqueios e cenarios)")
+        st.caption(
+            "Aceita um CSV com PARES O-D contendo distancia base, tempo base, "
+            "travessias, atrasos diarios e versao melhorada (com viaduto/novo acesso). "
+            "Cada `access_scenario` diferente de 'base' vira automaticamente um cenario."
+        )
+
+        odm_csv_path = odm_loader.find_od_matrix_csv()
+        col_om1, col_om2 = st.columns(2)
+        with col_om1:
+            up_odm = st.file_uploader(
+                "Upload matriz OD detalhada (.csv)",
+                type=["csv"],
+                key="up_odm_detalhada",
+                help="Schema: origin_zone, destination_zone, base_distance_km, "
+                     "base_travel_time_min, road_crossings_count, "
+                     "rail_crossings_count, daily_blockage_minutes, "
+                     "delay_per_trip_min, improved_distance_km, "
+                     "improved_travel_time_min, access_scenario, notes",
+            )
+            if up_odm:
+                try:
+                    dest = odm_loader.DEMO_DIR / "od_matrix_template_matias_barbosa.csv"
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    with open(dest, "wb") as fh:
+                        fh.write(up_odm.getbuffer())
+                    metadata_manager.mark_as_updated("parametros_tempo_custo")
+                    st.success(f"Salvo em {dest.name}")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Falha ao salvar: {exc}")
+
+        with col_om2:
+            st.markdown("📄 Arquivo padrao: `data/demo_matias_barbosa/od_matrix_template_matias_barbosa.csv`")
+            if odm_csv_path is not None:
+                st.success(f"✅ Existe: `{odm_csv_path.name}` ({odm_csv_path.stat().st_size} bytes)")
+                with open(odm_csv_path, "rb") as fh:
+                    st.download_button(
+                        "⬇️ Baixar CSV atual / template",
+                        data=fh.read(),
+                        file_name=odm_csv_path.name,
+                        mime="text/csv",
+                        key="dl_odm_csv",
+                    )
+            else:
+                st.warning("⚠️ Arquivo nao encontrado. Faca upload ao lado.")
+
+        if odm_csv_path is not None:
+            # Preview do CSV
+            with st.expander("👀 Preview do CSV carregado"):
+                _df_preview, _log_preview = odm_loader.load_od_matrix_csv(odm_csv_path)
+                if _df_preview is not None:
+                    st.dataframe(_df_preview, use_container_width=True, hide_index=True)
+                    for line in _log_preview:
+                        st.caption(line)
+
+            if st.button(
+                "🔁 Aplicar matriz OD detalhada nos cenarios",
+                type="primary",
+                use_container_width=True,
+                key="btn_apply_odm",
+            ):
+                odm_df, log = odm_loader.load_od_matrix_csv(odm_csv_path)
+                if odm_df is None:
+                    st.error("Falha ao carregar matriz OD. Veja o log abaixo.")
+                    for line in log:
+                        st.text(line)
+                else:
+                    # Guarda a matriz OD detalhada em session_state para o relatorio
+                    st.session_state.odm_detailed_df = odm_df
+                    st.session_state.odm_detailed_path = str(odm_csv_path)
+
+                    # Cria cenarios automaticos a partir das linhas access_scenario != 'base'
+                    _, sc_map = odm_loader.split_base_and_scenarios(odm_df)
+                    n_created = 0
+                    existing_names = {s.nome for s in st.session_state.scenarios}
+                    for sc_name, sc_df in sc_map.items():
+                        sc_label = f"[CSV] {sc_name}"
+                        if sc_label in existing_names:
+                            continue
+                        # Calcula media de melhoria para descricao
+                        dist_melh = pd.to_numeric(
+                            sc_df.get("improved_distance_km"), errors="coerce"
+                        ).dropna().mean()
+                        tempo_melh = pd.to_numeric(
+                            sc_df.get("improved_travel_time_min"), errors="coerce"
+                        ).dropna().mean()
+                        desc = (
+                            f"Cenario importado do CSV - {len(sc_df)} pares OD "
+                            f"melhorados. Distancia media: "
+                            f"{dist_melh:.2f}km, Tempo medio: {tempo_melh:.2f}min"
+                            if pd.notna(dist_melh) else
+                            f"Cenario importado do CSV - {len(sc_df)} pares OD"
+                        )
+                        new_sc = scen.Scenario(
+                            nome=sc_label,
+                            tipo="Cenario com viaduto",
+                            descricao=desc,
+                        )
+                        st.session_state.scenarios.append(new_sc)
+                        n_created += 1
+
+                    metadata_manager.mark_as_updated("parametros_tempo_custo")
+                    st.success(
+                        f"✅ Matriz OD detalhada carregada. "
+                        f"{n_created} novo(s) cenario(s) auto-gerado(s)."
+                    )
+                    for line in log:
+                        st.text(line)
+
+                    # Mostra comparativo de cenarios resumido
+                    df_cmp = odm_loader.compare_scenarios_csv(odm_df)
+                    if not df_cmp.empty:
+                        st.markdown("##### 📊 Comparativo base vs cenarios (do CSV)")
+                        st.dataframe(df_cmp, use_container_width=True, hide_index=True)
+
+            # Se ja houver matriz detalhada em sessao, mostra resumo
+            if "odm_detailed_df" in st.session_state:
+                df_loaded = st.session_state.odm_detailed_df
+                ind_base = odm_loader.aggregate_indicators(
+                    df_loaded[df_loaded["access_scenario"].str.lower().eq("base")]
+                )
+                st.markdown("##### 📊 Indicadores agregados (cenario base)")
+                col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+                with col_i1:
+                    v = ind_base.get("dist_media_base_km")
+                    st.metric("Distancia media (km)", f"{v:.2f}" if v else "—")
+                with col_i2:
+                    v = ind_base.get("tempo_medio_base_min")
+                    st.metric("Tempo medio (min)", f"{v:.2f}" if v else "—")
+                with col_i3:
+                    v = ind_base.get("atraso_total_diario_min")
+                    st.metric("Atraso diario total (min)", f"{v:.0f}" if v else "—")
+                with col_i4:
+                    v = ind_base.get("atraso_medio_viagem_min")
+                    st.metric("Atraso medio/viagem (min)", f"{v:.2f}" if v else "—")
+
+        else:
+            st.info(
+                "ℹ️ Faca upload do CSV ao lado para preencher esta secao. "
+                "Sem o arquivo, o simulador continua operando com a matriz O-D "
+                "gravitacional tradicional (aba 🔢 Matriz O-D)."
+            )
 
     # ===== SUB 4: FERROVIARIO =====
     with sub_tab4:

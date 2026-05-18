@@ -32,6 +32,8 @@ def build_markdown_report(
     rail_blocking_table: list = None,   # opcional
     social_cost: dict = None,           # opcional
     assignment_edges_df=None,           # opcional
+    odm_detailed_df=None,               # opcional - matriz OD via CSV detalhado
+    odm_scenarios_compare=None,         # opcional - comparativo base vs cenarios CSV
 ) -> str:
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     out = StringIO()
@@ -123,8 +125,60 @@ def build_markdown_report(
         w(f"- Atraso anual estimado: **{social_cost.get('atraso_anual_horas', '—')} horas**  \n\n")
         w("> Valores exploratorios - dependem de calibracao com dados locais.\n\n")
 
+    if odm_detailed_df is not None and not odm_detailed_df.empty:
+        w("## 10. Matriz OD detalhada com atrasos e bloqueios\n\n")
+        w("Dados importados do CSV de matriz O-D detalhada (`origin_zone`, "
+          "`destination_zone`, distancias base/melhorada, travessias, "
+          "bloqueios diarios e atraso por viagem).\n\n")
+        # Tabela resumida dos pares base
+        base_pairs = odm_detailed_df[
+            odm_detailed_df["access_scenario"].str.lower().eq("base")
+        ]
+        if not base_pairs.empty:
+            cols_show = [c for c in [
+                "origin_zone", "destination_zone",
+                "base_distance_km", "base_travel_time_min",
+                "daily_blockage_minutes", "delay_per_trip_min",
+                "road_crossings_count", "rail_crossings_count",
+            ] if c in base_pairs.columns]
+            inter = base_pairs[base_pairs["origin_zone"] != base_pairs["destination_zone"]]
+            w("### Pares O-D base (com travessias/bloqueios)\n\n")
+            w(_df_to_md(inter[cols_show] if cols_show else inter))
+            w("\n\n")
+
+            # Estatistica de atraso total
+            total_blockage = pd.to_numeric(
+                inter.get("daily_blockage_minutes"), errors="coerce"
+            ).dropna().sum() if "daily_blockage_minutes" in inter.columns else 0
+            mean_delay = pd.to_numeric(
+                inter.get("delay_per_trip_min"), errors="coerce"
+            ).dropna().mean() if "delay_per_trip_min" in inter.columns else 0
+            if total_blockage > 0 or mean_delay > 0:
+                w(f"- **Tempo total de bloqueio diario somado:** "
+                  f"{total_blockage:.0f} min ({total_blockage/60:.1f} h)  \n")
+                w(f"- **Atraso medio por viagem:** {mean_delay:.2f} min\n\n")
+
+        if odm_scenarios_compare is not None and not odm_scenarios_compare.empty:
+            w("### Comparativo base vs cenarios (do CSV)\n\n")
+            w(_df_to_md(odm_scenarios_compare))
+            w("\n\n")
+            # Identifica cenario com maior economia
+            sc_with_red = odm_scenarios_compare[
+                pd.to_numeric(odm_scenarios_compare.get("reducao_tempo_pct"),
+                              errors="coerce").fillna(0) > 0
+            ]
+            if not sc_with_red.empty:
+                best = sc_with_red.loc[
+                    pd.to_numeric(sc_with_red["reducao_tempo_pct"],
+                                  errors="coerce").idxmax()
+                ]
+                w(f"- **Cenario com maior reducao de tempo:** "
+                  f"**{best['cenario']}** "
+                  f"({best['reducao_tempo_pct']:.1f}% de reducao no tempo "
+                  f"medio entre zonas)\n\n")
+
     if assignment_edges_df is not None and not assignment_edges_df.empty:
-        w("## 10. Alocacao simplificada na rede (top 10 trechos)\n\n")
+        w("## 11. Alocacao simplificada na rede (top 10 trechos)\n\n")
         cols = [c for c in ["nome_via", "highway", "comprimento_m",
                             "fluxo_acumulado", "n_pares_od"]
                 if c in assignment_edges_df.columns]
@@ -134,7 +188,7 @@ def build_markdown_report(
         w("> Alocacao all-or-nothing - exploratoria. Nao substitui modelo de "
           "trafego calibrado, contagens volumetricas ou simulacao microscopica.\n\n")
 
-    w("## 11. Limitacoes do modelo\n\n")
+    w("## 12. Limitacoes do modelo\n\n")
     w("- O modelo gravitacional utilizado e simplificado e usa distancia euclidiana ")
     w("(haversine) entre centroides de zona, nao representando capacidade viaria nem ")
     w("congestionamentos.\n")
