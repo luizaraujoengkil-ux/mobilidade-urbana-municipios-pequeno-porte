@@ -2264,14 +2264,35 @@ with tabs[8]:
 
     if run_assignment:
         with st.spinner("Calculando caminhos minimos e alocando fluxos..."):
-            centroids = od_matrix.zone_centroids(zonas_gdf)
-            assignment_result = traffic_assignment.assign_od_to_network(
-                od_matrix=od_result,
-                zone_centroids_df=centroids,
-                osm_graph=osm_graph,
-            )
-            if assignment_result is None or assignment_result.get("edge_loads") is None:
-                st.error("Falha ao executar alocacao. Verifique se OSMnx esta funcional.")
+            try:
+                centroids = od_matrix.zone_centroids(zonas_gdf)
+                # Diagnostico rapido dos centroides
+                if centroids is None or centroids.empty:
+                    st.error("❌ Centroides das zonas nao puderam ser calculados.")
+                    st.stop()
+                with st.expander("🔍 Diagnostico dos centroides das zonas"):
+                    st.dataframe(centroids, use_container_width=True, hide_index=True)
+
+                assignment_result = traffic_assignment.assign_od_to_network(
+                    od_matrix=od_result,
+                    zone_centroids_df=centroids,
+                    osm_graph=osm_graph,
+                )
+                # Mostra mapeamento zona -> no OSM (debug)
+                if assignment_result.get("zona_to_osm_node"):
+                    with st.expander("🔍 Mapeamento zona -> no OSM"):
+                        st.json(assignment_result["zona_to_osm_node"])
+            except Exception as exc:
+                import traceback
+                st.error(f"❌ Exception durante alocacao: {exc}")
+                st.code(traceback.format_exc(), language="python")
+                assignment_result = {"error": str(exc), "edge_loads": None}
+
+            if assignment_result.get("error"):
+                st.error(f"❌ {assignment_result['error']}")
+            elif assignment_result.get("edge_loads") is None:
+                st.error("❌ Alocacao retornou sem arestas. Provavelmente o grafo "
+                         "OSM e pequeno ou esta desconectado.")
             else:
                 edges_df = traffic_assignment.classify_load_levels(
                     assignment_result["edge_loads"]

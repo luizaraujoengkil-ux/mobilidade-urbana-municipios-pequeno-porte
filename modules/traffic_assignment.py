@@ -27,11 +27,36 @@ from shapely.geometry import LineString
 
 
 def _find_nearest_osm_node(G_osm, lat: float, lon: float):
+    """Retorna o no OSM mais proximo, ou None com print do erro."""
     if not OSMNX_AVAILABLE or G_osm is None:
         return None
+    # Tentativa 1: API moderna ox.distance.nearest_nodes
     try:
         return ox.distance.nearest_nodes(G_osm, X=lon, Y=lat)
-    except Exception:
+    except Exception as exc:
+        print(f"[traffic_assignment] ox.distance.nearest_nodes falhou: {exc}")
+    # Tentativa 2: API antiga ox.get_nearest_node
+    try:
+        return ox.get_nearest_node(G_osm, (lat, lon))
+    except Exception as exc:
+        print(f"[traffic_assignment] ox.get_nearest_node falhou: {exc}")
+    # Tentativa 3: fallback manual com haversine
+    try:
+        from math import asin, cos, radians, sin, sqrt
+        best_node, best_d = None, float("inf")
+        for n, data in G_osm.nodes(data=True):
+            nlat, nlon = data.get("y"), data.get("x")
+            if nlat is None or nlon is None:
+                continue
+            lat1, lon1, lat2, lon2 = map(radians, [lat, lon, nlat, nlon])
+            dlat, dlon = lat2 - lat1, lon2 - lon1
+            a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+            d = 2 * 6371 * asin(sqrt(a))
+            if d < best_d:
+                best_d, best_node = d, n
+        return best_node
+    except Exception as exc:
+        print(f"[traffic_assignment] fallback manual nearest_node falhou: {exc}")
         return None
 
 
@@ -39,40 +64,58 @@ def assign_od_to_network(
     od_matrix: pd.DataFrame,
     zone_centroids_df: pd.DataFrame,
     osm_graph,
-) -> Optional[dict]:
+) -> dict:
     """Aloca os fluxos da matriz O-D nos caminhos minimos da rede OSM.
 
-    Args:
-        od_matrix: DataFrame quadrado com fluxos T_ij (index e columns =
-            codigos de zona, ex: 'Z1','Z2',...).
-        zone_centroids_df: DataFrame com colunas 'zona', 'lat', 'lon'.
-        osm_graph: nx.MultiDiGraph baixado via OSMnx.
-
     Returns:
-        dict com:
-        - 'edge_loads': DataFrame por aresta com fluxo acumulado
-        - 'paths': lista de tuplas (origem, destino, fluxo, lista_nodes)
+        dict sempre presente com:
+        - 'edge_loads': DataFrame por aresta (ou None se erro)
+        - 'paths': lista de tuplas
         - 'unreachable': pares (o,d) sem caminho na rede
+        - 'error': string descrevendo o erro, ou None
     """
-    if not OSMNX_AVAILABLE or osm_graph is None:
-        return None
+    result = {"edge_loads": None, "paths": [], "unreachable": [],
+              "error": None, "zona_to_osm_node": {}}
+
+    if not OSMNX_AVAILABLE:
+        result["error"] = "OSMnx nao esta disponivel neste ambiente."
+        return result
+    if osm_graph is None:
+        result["error"] = "Grafo OSM nao carregado. Va na sidebar -> Baixar OSM."
+        return result
     if od_matrix is None or od_matrix.empty:
-        return None
+        result["error"] = "Matriz O-D vazia. Calcule na aba Matriz O-D."
+        return result
     if zone_centroids_df is None or zone_centroids_df.empty:
-        return None
+        result["error"] = "Centroides de zona vazios."
+        return result
 
     # Mapeia codigo de zona -> no OSM mais proximo
     zona_to_osm_node = {}
+    failed_zones = []
     for _, row in zone_centroids_df.iterrows():
         z = str(row.get("zona", "")).upper().strip()
-        lat = float(row["lat"])
-        lon = float(row["lon"])
+        try:
+            lat = float(row["lat"])
+            lon = float(row["lon"])
+        except (KeyError, TypeError, ValueError) as exc:
+            failed_zones.append(f"{z} (coords invalidas: {exc})")
+            continue
         node = _find_nearest_osm_node(osm_graph, lat, lon)
         if node is not None:
             zona_to_osm_node[z] = node
+        else:
+            failed_zones.append(f"{z} (sem no OSM proximo)")
+
+    result["zona_to_osm_node"] = zona_to_osm_node
 
     if not zona_to_osm_node:
-        return None
+        result["error"] = (
+            f"Nenhuma zona conseguiu ser ligada a um no OSM. "
+            f"Falhas: {', '.join(failed_zones) if failed_zones else 'sem detalhes'}. "
+            f"Possivel causa: raio do OSM e pequeno demais (aumente na sidebar)."
+        )
+        return result
 
     # Acumulador de fluxo por aresta
     edge_loads = {}  # (u, v) -> fluxo total
@@ -80,6 +123,7 @@ def assign_od_to_network(
     paths_info = []
     unreachable = []
 
+    dijkstra_errors = []
     for o_zona in od_matrix.index:
         if o_zona not in zona_to_osm_node:
             continue
@@ -89,7 +133,8 @@ def assign_od_to_network(
             lengths, paths = nx.single_source_dijkstra(
                 osm_graph, u_source, weight="length"
             )
-        except Exception:
+        except Exception as exc:
+            dijkstra_errors.append(f"{o_zona}: {exc}")
             continue
         for d_zona in od_matrix.columns:
             if o_zona == d_zona:
@@ -138,13 +183,22 @@ def assign_od_to_network(
                 "..." if len(edge_od_pairs[(u, v)]) > 5 else ""
             ),
         })
+    if not rows:
+        msg = "Nenhuma aresta carregada apos a alocacao."
+        if dijkstra_errors:
+            msg += f" Dijkstra falhou em: {', '.join(dijkstra_errors[:3])}"
+        elif not paths_info:
+            msg += (" Todos os caminhos resultaram em None ou nao foram "
+                    "encontrados. Possivel causa: rede OSM desconectada ou "
+                    "fluxos zerados na matriz O-D.")
+        result["error"] = msg
+        return result
+
     edges_df = pd.DataFrame(rows).sort_values("fluxo_acumulado", ascending=False)
-    return {
-        "edge_loads": edges_df,
-        "paths": paths_info,
-        "unreachable": unreachable,
-        "zona_to_osm_node": zona_to_osm_node,
-    }
+    result["edge_loads"] = edges_df
+    result["paths"] = paths_info
+    result["unreachable"] = unreachable
+    return result
 
 
 def edges_to_geodataframe(edges_df: pd.DataFrame, osm_graph) -> Optional[gpd.GeoDataFrame]:
